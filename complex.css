@@ -1,0 +1,4 @@
+/* For future use */
+#viewport { width: 100%; height: 100%; background: #333; } /* This div contains our play area */
+#puzzle { background: blue; height: 100%; box-flex: 1.0; -webkit-box-flex: 1.0; } /* The puzzle area fills the main area, so will flex to fill the space */
+#tray { background: green; height: 100%; box-flex: 2.0; width: 400px; } /* Our tray is sizeable, so we use a pixel width */
