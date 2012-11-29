@@ -1,6 +1,4 @@
-// Also just check the distance between midpoints on the side
-// Once joined, group them, then always check for parent groups
-
+var panning = false;            // False when not panning the play area, otherwise an object with properties startX, startY to record where the drag began, taking into account previous drag movements
 var dragPiece = null;           // Puzzle piece currently being dragged
 var startX, startY;             // Position where dragged puzzle piece was grabbed
 var puzzle = {                  // Object storing all key values
@@ -42,14 +40,18 @@ function setupPuzzle() {
 	// Validate these selected values
 	setLimits();
 
+	// Setup pan dragging, which allows moving around the screen by dragging the background
+	document.body.addEventListener('mousedown', startPan, false);
+	
 	// Listen to drag events at the root in case we move too fast on a piece	
 	document.body.addEventListener('mousemove', moveDrag, false);
 	document.body.addEventListener('mouseup', endDrag, false);
 	
 	// Size the play area to fit the image
 	var mainArea = document.getElementById("viewport");
-	mainArea.setAttributeNS(null, "width", puzzle.width + puzzle.pieceWidth * 3+ "px");
-	mainArea.setAttributeNS(null, "height", puzzle.height + puzzle.pieceHeight * 3 + "px");
+	mainArea.setAttributeNS(null, "width", "100%");
+	mainArea.setAttributeNS(null, "height", "100%");
+	mainArea.setAttributeNS(null, "viewBox", "0 0" + document.body.offsetWidth + " " + document.body.offsetHeight);
 	
 	// Draw the puzzle pieces
 	renderPuzzle();
@@ -248,6 +250,31 @@ function getPieceSides(ux, uy, nubs) {
 
 
 /**
+ * Returns the bounding box object for the given puzzle piece
+ * @param SVGPath piece The puzzle element
+ * @return SVGRect Returns the bounding rectangle for the given puzzle piece which has width, height, x, and y properties
+ */
+function getPieceBox(piece) {
+	return piece.getBBox();
+}
+
+
+/**
+ * Begin panning the main view
+ */
+function startPan(evt) {
+	// Get the viewbox's current position
+	var viewBox = document.getElementById("viewport").getAttributeNS(null, "viewBox").split(" ");
+	
+	// Record where we started dragging
+	panning = {
+		startX: evt.clientX + parseInt(viewBox[0], 10),
+		startY: evt.clientY + parseInt(viewBox[1], 10)
+	};
+}
+
+
+/**
  * Handle grabbing a puzzle piece
  */
 function startDrag(evt) {
@@ -275,16 +302,6 @@ function startDrag(evt) {
 
 
 /**
- * Returns the bounding box object for the given puzzle piece
- * @param SVGPath piece The puzzle element
- * @return SVGRect Returns the bounding rectangle for the given puzzle piece which has width, height, x, and y properties
- */
-function getPieceBox(piece) {
-	return piece.getBBox();
-}
-
-
-/**
  * Handle moving a dragged puzzle piece
  */
 function moveDrag(evt) {
@@ -297,6 +314,14 @@ function moveDrag(evt) {
 		dragPiece.matrix[4] = dx;
 		dragPiece.matrix[5] = dy;
 		dragPiece.setAttributeNS(null, 'transform', 'matrix(' + dragPiece.matrix.join(',') + ')');
+	} else if (panning) {
+		// Determine where we've moved
+		var dx = panning.startX - evt.clientX;
+		var dy = panning.startY - evt.clientY;
+		
+		// Move the main play area
+		var mainArea = document.getElementById("viewport");
+		mainArea.setAttributeNS(null, "viewBox", dx + " " + dy + " " + document.body.offsetWidth + " " + document.body.offsetHeight);
 	}
 }
 
@@ -329,6 +354,9 @@ function endDrag(evt) {
 		
 		// Deselect the piece to prevent any further movement
 		dragPiece = null;
+	} else {
+		// Stop panning the play area
+		panning = false;
 	}
 }
 
