@@ -1,8 +1,11 @@
+// To link pieces, on start drag, add a drop zone listener to all adjacent pieces and simply link if that listener fires on drop
+// Also just check the distance between midpoints on the side
+// Once joined, group them, then always check for parent groups
+
 var dragPiece = null;                // Puzzle piece currently being dragged
 var startX, startY;                  // Position where dragged puzzle piece was grabbed
 var puzzle = {                       // Object storing all key values
-		difficulty: 2,          // Difficulty level of the puzzle (generally relates to the number of pieces)
-		multiplier: 6,          // Unknown
+		difficulty: 8,          // Difficulty level of the puzzle (generally relates to the number of pieces)
 		minWidth: 50,           // Minimum allowed width of a single piece, in pixels
 		minHeight: 50,          // Minimum allowed height of a single piece, in pixels
 		rows: null,             // Total rows in the puzzle
@@ -12,7 +15,8 @@ var puzzle = {                       // Object storing all key values
 		pieceWidth: null,       // Width of a single piece, in pixels
 		pieceHeight: null,      // Height of a single piece, in pixels
 		nubWidth: null,         // The amount of extra width given to a piece by an external connector nub, in pixels
-		nubHeight: null         // The amount of extra height given to a piece by an external connector nub, in pixels
+		nubHeight: null,        // The amount of extra height given to a piece by an external connector nub, in pixels
+		snapThreshold: 20       // Distance a piece may be from an exact fit before it snaps into place, in pixels
 	};
 
 
@@ -25,8 +29,8 @@ function setupPuzzle() {
 	puzzle.height =	document.getElementById("puzzleImg").height;
 
 	// Calculate how many rows and columns of pieces we will have
-	puzzle.columns = Math.floor((puzzle.width/puzzle.height) * puzzle.multiplier * puzzle.difficulty);
-	puzzle.rows = Math.floor((puzzle.width/puzzle.width) * puzzle.multiplier * puzzle.difficulty);
+	puzzle.columns = Math.floor((puzzle.width/puzzle.height) * puzzle.difficulty);
+	puzzle.rows = Math.floor((puzzle.width/puzzle.width) * puzzle.difficulty);
 	
 	// Determine the dimensions of a single piece
 	puzzle.pieceWidth = Math.floor(puzzle.width / puzzle.columns);
@@ -54,7 +58,8 @@ function setupPuzzle() {
 function renderPuzzle() {
 	for (var row = 0; row < puzzle.rows; row++) {
 		for (var column = 0; column < puzzle.columns; column++) {
-			drawPiece(Math.random() * 1000, Math.random() * 300, puzzle.pieceWidth, puzzle.pieceHeight, row, column);
+//			drawPiece(Math.random() * document.body.offsetWidth * 0.8, Math.random() * document.body.offsetHeight * 0.8, puzzle.pieceWidth, puzzle.pieceHeight, row, column);
+			drawPiece(column * puzzle.pieceWidth, row * puzzle.pieceHeight, puzzle.pieceWidth, puzzle.pieceHeight, row, column);
 		}
 	}
 }
@@ -83,6 +88,7 @@ function drawPiece(x, y, width, height, row, column) {
 	puzzlePiece.setAttributeNS(null, "d", d);                   // Apply the definition to the actual shape element
 	puzzlePiece.matrix = [1, 0, 0, 1, x, y];                    // Track each piece's transformation matrix within the object itself for simpler manipulation
 	puzzlePiece.setAttributeNS(null, "transform", "matrix(" + puzzlePiece.matrix.join(',') + ")");     // Apply a default transformation so we can later parse it
+	puzzlePiece.setAttributeNS(null, "id", "PR" + row + "C" + column);     // Tag the piece id in a way that makes it easy to obtain any piece just by knowing its position in the puzzle
 	
 	// Set the fill for the piece, which paints it with the puzzle's image
 	var patternId = "XR" + row + "C" + column;                  // Curiously, we can't use the form R#C#, or the pattern fails to display
@@ -157,10 +163,11 @@ function createPiecePattern(row, column, id, nubs) {
 	if (nubs[1] < 0) { actualPieceWidth += puzzle.nubWidth; }
 	if (nubs[2] < 0) { actualPieceHeight += puzzle.nubHeight; }
 	if (nubs[3] < 0) { actualPieceWidth += puzzle.nubWidth; imageX += puzzle.nubWidth; }
-	
+
 	// Correct base pattern position for top-left no nub protrusion cases
 	if (nubs[0] >= 0) { offsetY += puzzle.nubHeight; }
 	if (nubs[3] >= 0) { offsetX += puzzle.nubWidth; }
+	
 	
 	// Define the base pattern
 	var pattern = document.createElementNS("http://www.w3.org/2000/svg", "pattern");
@@ -259,6 +266,16 @@ function startDrag(evt) {
 
 
 /**
+ * Returns the bounding box object for the given puzzle piece
+ * @param SVGPath piece The puzzle element
+ * @return SVGRect Returns the bounding rectangle for the given puzzle piece which has width, height, x, and y properties
+ */
+function getPieceBox(piece) {
+	return piece.getBBox();
+}
+
+
+/**
  * Handle moving a dragged puzzle piece
  */
 function moveDrag(evt) {
@@ -280,7 +297,10 @@ function moveDrag(evt) {
  */
 function endDrag(evt) {
 	if (dragPiece) {
-		// Drop the piece, straightening it again
+		// Check to see if the piece should snap to any matching pieces adjacent to it
+		snapPiece(dragPiece);
+		
+		// Drop the piece, clearing any special transformations that may have been made
 		dragPiece.matrix[0] = 1;
 		dragPiece.matrix[1] = 0;
 		dragPiece.matrix[2] = 0;
@@ -291,8 +311,152 @@ function endDrag(evt) {
 		dragPiece.removeEventListener('mousemove', moveDrag, false);
 		dragPiece.removeEventListener('mouseup', endDrag, false);
 		dragPiece.removeEventListener('mouseout', endDrag, false);
+		
 		dragPiece.setAttributeNS(null, "class", "");         // Clear the class, to remove the shadow
+		
+		// Deselect the piece to prevent any further movement
 		dragPiece = null;
+	}
+}
+
+
+/**
+ * Check all non-linked sides to see if we have successfully connected to a piece
+ * @param SVGPath piece The puzzle piece path element to check
+ * @internal If a link is found, group or merge the groups of the linked pieces
+ */
+function snapPiece(piece) {
+	// Find the midpoint of the puzzle piece's side and the opposite side of the adjacent piece
+	// If the distance is below the snap threshold, snap them together
+	var pieceRowCol = getPieceRowCol(piece);          // Get the row and column of this piece
+	var piecePos = getPiecePosition(piece);           // Get the screen coordinate (x, y) of the puzzle piece's top-left and bottom-right corners (ignoring nubs)
+	var adjacentCoord = [0, -1];                      // Puzzle column/row offset identifying how to find the adjacent piece
+	var comparePiece;                                 // Puzzle piece to compare against for adjacency
+	var compareId;                                    // The id of the comparison puzzle piece
+	var comparePos;                                   // Screen coordinates of the comparison piece's top-left and bottom-right corners (ignoring nubs)
+	var swap;                                         // Temporary swap variable
+	var midpointA, midpointB;                         // Midpoint coordinates of the given piece and the comparison piece for the sides being compared
+
+	for (var side = 0; side < 4; side++) {
+		// Calculate the comparison puzzle piece's id on the side to check
+		compareId = "PR" + (pieceRowCol.row + adjacentCoord[1]) + "C" + (pieceRowCol.column + adjacentCoord[0]);
+		
+		// Rotate the adjacency before we hit the loop skip, so we ensure it always happens
+		swap = adjacentCoord[0];
+		adjacentCoord[0] = -adjacentCoord[1];
+		adjacentCoord[1] = swap;
+		
+		// Retrieve the puzzle piece to compare against
+		comparePiece = document.getElementById(compareId);
+
+		if (!comparePiece) { continue; }              // If no such piece exists (such as if it is beyond the edge of the puzzle), skip the check
+
+		// Get the coordinates of the piece's base box
+		comparePos = getPiecePosition(comparePiece);
+		
+		// Retrieve the two midpoints from opposing sides
+		midpointA = getMidpoint(piecePos, side);
+		midpointB = getMidpoint(comparePos, (side + 2) % 4);    // The opposing side is 2 sides away from the current one, wrapping around as necessary
+
+		// Debug code
+		if (side == 0) {
+			var dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+			dot.setAttributeNS(null, "cx", midpointA.x);
+			dot.setAttributeNS(null, "cy", midpointA.y);
+			dot.setAttributeNS(null, "r", 10);
+			dot.setAttributeNS(null, "fill", "red");
+			document.getElementById("viewport").appendChild(dot);
+	
+			dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+			dot.setAttributeNS(null, "cx", midpointB.x);
+			dot.setAttributeNS(null, "cy", midpointB.y);
+			dot.setAttributeNS(null, "r", 10);
+			dot.setAttributeNS(null, "fill", "green");
+			document.getElementById("viewport").appendChild(dot);
+		}
+
+		// Snap the pieces if the two sides are sufficiently aligned
+		if (distance(midpointA, midpointB) < puzzle.snapThreshold) {
+			console.log('Snap pieces on side ' + side);          // Debug code
+		}
+		
+		// Debug
+		comparePiece.setAttributeNS(null, "stroke-width", "3");
+		comparePiece.setAttributeNS(null, "stroke", "red");
+	}
+}
+
+/**
+ * Returns the screen coordinates for a given puzzle piece's base box (puzzle piece without nubs considered)
+ * @param SVGPath piece The puzzle piece path element
+ * @return object Returns a box object for the piece's base, ignoring nubs, with properties x1, y1, x2, y2, where (x1, y1) is the top-left and (x2, y2) is the bottom right
+ */
+function getPiecePosition(piece) {
+	var rowCol = getPieceRowCol(piece);          // Get the row and column of this piece, so we know where it is pre-transformation
+	
+	// Determine the top-left coordinate, accounting for any movements from its natural position caused by translations
+	var box = {
+		x1: piece.matrix[4] + puzzle.nubWidth,      // Include the nub width here since the sides are missing nubs, but the base positioning takes them into account
+		y1: piece.matrix[5] + puzzle.nubHeight
+	};
+	
+	// The bottom-right coordinates are now easy to determine
+	box.x2 = box.x1 + puzzle.pieceWidth;
+	box.y2 = box.y1 + puzzle.pieceHeight;
+	
+	// Return the final box object
+	return box;
+}
+
+
+/**
+ * Returns the midpoint coordinates for a given puzzle piece on a specific side
+ * @param object box A coordinate box defining the top-left and bottom-right positions for a puzzle piece, with properties x1, y1, x2, y2, where (x1, y1) is the top-left and (x2, y2) is the bottom-right
+ * @param integer side The side index in the range 0..3, where 0 is the top, then the other sides proceed clockwise
+ * @return object Returns a coordinate object for the midpoint on the specified side with x and y properties
+ */
+function getMidpoint(box, side) {
+	// Since we are just dealing with a grid-aligned box, we have a greatly simplified midpoint calculation
+	switch (side) {
+		case 0: // Top
+			return { x: (box.x1 + box.x2) / 2, y: box.y1 };
+		case 1: // Right
+			return { x: box.x2, y: (box.y1 + box.y2) / 2 };
+		case 2: // Bottom
+			return { x: (box.x1 + box.x2) / 2, y: box.y2 };
+		case 3: // Left
+			return { x: box.x1, y: (box.y1 + box.y2) / 2 };
+		default: // Illegal value
+			return false;
+	}
+}
+
+
+/**
+ * Returns the distance between two points, A and B
+ * @param object A An object representing a coordinate, with properties x and y
+ * @param object B An object representing a coordinate, with properties x and y
+ * @return float Returns the distance between the two points A and B
+ */
+function distance(A, B) {
+	return Math.sqrt(Math.pow(A.x - B.x, 2) + Math.pow(A.y - B.y, 2));
+}
+
+
+/**
+ * Return the row and column of a given puzzle piece
+ * @param SVGPath piece The path element for a given puzzle piece
+ * @return object Returns an object with properties for the piece's row and column values
+ */
+function getPieceRowCol(piece) {
+	var id = piece.getAttributeNS(null, "id");         // Get the piece id, which contains the row and column
+	var pattern =/\d+/g;                               // Define the regex expression to extract just the integers found within it
+	var position = id.match(pattern);                  // Parse out the integers
+	
+	// Return the object defining the piece's row and column
+	return {
+		row: parseInt(position[0], 10),
+		column: parseInt(position[1], 10)
 	}
 }
 
