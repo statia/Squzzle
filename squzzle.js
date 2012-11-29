@@ -1,22 +1,21 @@
-// To link pieces, on start drag, add a drop zone listener to all adjacent pieces and simply link if that listener fires on drop
 // Also just check the distance between midpoints on the side
 // Once joined, group them, then always check for parent groups
 
-var dragPiece = null;                // Puzzle piece currently being dragged
-var startX, startY;                  // Position where dragged puzzle piece was grabbed
-var puzzle = {                       // Object storing all key values
-		difficulty: 8,          // Difficulty level of the puzzle (generally relates to the number of pieces)
-		minWidth: 50,           // Minimum allowed width of a single piece, in pixels
-		minHeight: 50,          // Minimum allowed height of a single piece, in pixels
-		rows: null,             // Total rows in the puzzle
-		columns: null,          // Total columns in the puzzle
-		width: null,            // Width of the source image, in pixels
-		height: null,           // Height of the source image, in pixels
-		pieceWidth: null,       // Width of a single piece, in pixels
-		pieceHeight: null,      // Height of a single piece, in pixels
-		nubWidth: null,         // The amount of extra width given to a piece by an external connector nub, in pixels
-		nubHeight: null,        // The amount of extra height given to a piece by an external connector nub, in pixels
-		snapThreshold: 20       // Distance a piece may be from an exact fit before it snaps into place, in pixels
+var dragPiece = null;           // Puzzle piece currently being dragged
+var startX, startY;             // Position where dragged puzzle piece was grabbed
+var puzzle = {                  // Object storing all key values
+		difficulty: 8,             // Difficulty level of the puzzle (generally relates to the number of pieces)
+		minWidth: 50,              // Minimum allowed width of a single piece, in pixels
+		minHeight: 50,             // Minimum allowed height of a single piece, in pixels
+		rows: null,                // Total rows in the puzzle
+		columns: null,             // Total columns in the puzzle
+		width: null,               // Width of the source image, in pixels
+		height: null,              // Height of the source image, in pixels
+		pieceWidth: null,          // Width of a single piece, in pixels
+		pieceHeight: null,         // Height of a single piece, in pixels
+		nubWidth: null,            // The amount of extra width given to a piece by an external connector nub, in pixels
+		nubHeight: null,           // The amount of extra height given to a piece by an external connector nub, in pixels
+		snapThreshold: 20          // Distance a piece may be from an exact fit before it snaps into place, in pixels
 	};
 
 
@@ -47,6 +46,11 @@ function setupPuzzle() {
 	document.body.addEventListener('mousemove', moveDrag, false);
 	document.body.addEventListener('mouseup', endDrag, false);
 	
+	// Size the play area to fit the image
+	var mainArea = document.getElementById("viewport");
+	mainArea.setAttributeNS(null, "width", puzzle.width + puzzle.pieceWidth * 3+ "px");
+	mainArea.setAttributeNS(null, "height", puzzle.height + puzzle.pieceHeight * 3 + "px");
+	
 	// Draw the puzzle pieces
 	renderPuzzle();
 }
@@ -58,8 +62,8 @@ function setupPuzzle() {
 function renderPuzzle() {
 	for (var row = 0; row < puzzle.rows; row++) {
 		for (var column = 0; column < puzzle.columns; column++) {
-//			drawPiece(Math.random() * document.body.offsetWidth * 0.8, Math.random() * document.body.offsetHeight * 0.8, puzzle.pieceWidth, puzzle.pieceHeight, row, column);
-			drawPiece(column * puzzle.pieceWidth, row * puzzle.pieceHeight, puzzle.pieceWidth, puzzle.pieceHeight, row, column);
+			drawPiece(Math.random() * puzzle.width - (column * puzzle.pieceWidth), Math.random() * puzzle.height - (row * puzzle.pieceHeight), puzzle.pieceWidth, puzzle.pieceHeight, row, column);
+//			drawPiece(0, 0, puzzle.pieceWidth, puzzle.pieceHeight, row, column);       // Perfectly aligned (debug)
 		}
 	}
 }
@@ -67,8 +71,8 @@ function renderPuzzle() {
 
 /**
  * Render the specified piece
- * @param integer x The horizontal position of the piece in the puzzle grid, where 0 is the left-most position
- * @param integer y The vertical position of the piece in the puzzle grid, where 0 is the top-most position
+ * @param integer x The horizontal offset position of the piece in the puzzle grid, where 0 is the left-most position of the piece when fitted in its correct position
+ * @param integer y The vertical offset position of the piece in the puzzle grid, where 0 is the top-most position of the piece when fitted in its correct position
  * @param float width The width of the piece in pixels (excluding the joining parts)
  * @param float height The height of the piece in pixels (excluding the joining parts)
  * @param integer row The row the piece is found in, where the first row is 0 (top)
@@ -79,6 +83,9 @@ function drawPiece(x, y, width, height, row, column) {
 	var ux = width / 12;
 	var uy = height / 12;
 	
+	// Create the wrapping group for the piece
+	var group = document.createElementNS("http://www.w3.org/2000/svg", "g");
+	
 	// Create the base puzzle piece's path element
 	var puzzlePiece = document.createElementNS("http://www.w3.org/2000/svg", "path");
 	
@@ -86,17 +93,21 @@ function drawPiece(x, y, width, height, row, column) {
 	var nubs = getNubs(row, column);                            // Determine the outline shape of this piece
 	var d = "M" + puzzle.nubWidth + "," + puzzle.nubHeight + getPieceSides(ux, uy, nubs) + " z";        // Build the shape definition parameter
 	puzzlePiece.setAttributeNS(null, "d", d);                   // Apply the definition to the actual shape element
-	puzzlePiece.matrix = [1, 0, 0, 1, x, y];                    // Track each piece's transformation matrix within the object itself for simpler manipulation
-	puzzlePiece.setAttributeNS(null, "transform", "matrix(" + puzzlePiece.matrix.join(',') + ")");     // Apply a default transformation so we can later parse it
+	group.matrix = [1, 0, 0, 1, x, y];                          // Track each piece's transformation matrix within the object itself for simpler manipulation
 	puzzlePiece.setAttributeNS(null, "id", "PR" + row + "C" + column);     // Tag the piece id in a way that makes it easy to obtain any piece just by knowing its position in the puzzle
+	puzzlePiece.setAttributeNS(null, "transform", "matrix(1,0,0,1," + (column * puzzle.pieceWidth) + "," + (row * puzzle.pieceHeight) + ")");     // Position the path within the group according to it's position within the puzzle; we move the parent group, not the path, but pieces need to remain correctly aligned relatively when grouped together
 	
 	// Set the fill for the piece, which paints it with the puzzle's image
 	var patternId = "XR" + row + "C" + column;                  // Curiously, we can't use the form R#C#, or the pattern fails to display
 	createPiecePattern(row, column, patternId, nubs);
 	puzzlePiece.setAttributeNS(null, "fill", "url(#" + patternId + ")");
 	
+	// Position the puzzle piece
+	group.setAttributeNS(null, "transform", "matrix(" + group.matrix.join(',') + ")");     // Apply a default transformation so we can later parse it
+	
 	// Add the piece to the layout
-	document.getElementById('viewport').appendChild(puzzlePiece);
+	group.appendChild(puzzlePiece);
+	document.getElementById('viewport').appendChild(group);
 	
 	// Apply event listeners to the puzzle piece
 	puzzlePiece.addEventListener('mousedown', startDrag, false);
@@ -244,12 +255,11 @@ function startDrag(evt) {
 	if (dragPiece) { endDrag(); }
 
 	// Store a reference to the dragged piece
-	dragPiece = evt.target;
+	dragPiece = evt.target.parentNode;
 	
 	// Apply the drag handlers to handle moving it around the screen
 	dragPiece.addEventListener('mousemove', moveDrag, false);
 	dragPiece.addEventListener('mouseup', endDrag, false);
-	//dragPiece.addEventListener('mouseout', endDrag, false);
 	
 	// Get the starting position to drag from to allow us to monitor movements later
 	startX = evt.clientX - dragPiece.matrix[4];
@@ -261,7 +271,6 @@ function startDrag(evt) {
 	// Pick up the piece, casting a shadow
 	var angle = Math.random() * 0.2 - 0.1;
 	dragPiece.setAttributeNS(null, 'transform', 'matrix(' + dragPiece.matrix.join(',') + ')');
-	dragPiece.setAttributeNS(null, "class", "dragging");           // Apply a class which grants the floating shadow
 }
 
 
@@ -297,8 +306,14 @@ function moveDrag(evt) {
  */
 function endDrag(evt) {
 	if (dragPiece) {
-		// Check to see if the piece should snap to any matching pieces adjacent to it
-		snapPiece(dragPiece);
+		// Create an array of pieces in the current group, so that when we check for snapping, merges that occur won't disrupt the loop
+		var pieces = [];
+		for (var i = 0; i < dragPiece.childNodes.length; i++) { pieces.push(dragPiece.childNodes.item(i)); }
+		
+		// Check to see if the piece should snap to any matching pieces adjacent to it (check all pieces in the dragged group)
+		for (var i = 0; i < pieces.length; i++) {
+			snapPiece(pieces[i]);
+		}
 		
 		// Drop the piece, clearing any special transformations that may have been made
 		dragPiece.matrix[0] = 1;
@@ -311,8 +326,6 @@ function endDrag(evt) {
 		dragPiece.removeEventListener('mousemove', moveDrag, false);
 		dragPiece.removeEventListener('mouseup', endDrag, false);
 		dragPiece.removeEventListener('mouseout', endDrag, false);
-		
-		dragPiece.setAttributeNS(null, "class", "");         // Clear the class, to remove the shadow
 		
 		// Deselect the piece to prevent any further movement
 		dragPiece = null;
@@ -351,6 +364,9 @@ function snapPiece(piece) {
 
 		if (!comparePiece) { continue; }              // If no such piece exists (such as if it is beyond the edge of the puzzle), skip the check
 
+		// Skip check if the comparison piece is already snapped to the current piece
+		if ((piece.parentNode.nodeName == "g") && (piece.parentNode == comparePiece.parentNode)) { continue; }
+
 		// Get the coordinates of the piece's base box
 		comparePos = getPiecePosition(comparePiece);
 		
@@ -358,33 +374,31 @@ function snapPiece(piece) {
 		midpointA = getMidpoint(piecePos, side);
 		midpointB = getMidpoint(comparePos, (side + 2) % 4);    // The opposing side is 2 sides away from the current one, wrapping around as necessary
 
-		// Debug code
-		if (side == 0) {
-			var dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-			dot.setAttributeNS(null, "cx", midpointA.x);
-			dot.setAttributeNS(null, "cy", midpointA.y);
-			dot.setAttributeNS(null, "r", 10);
-			dot.setAttributeNS(null, "fill", "red");
-			document.getElementById("viewport").appendChild(dot);
-	
-			dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-			dot.setAttributeNS(null, "cx", midpointB.x);
-			dot.setAttributeNS(null, "cy", midpointB.y);
-			dot.setAttributeNS(null, "r", 10);
-			dot.setAttributeNS(null, "fill", "green");
-			document.getElementById("viewport").appendChild(dot);
-		}
-
 		// Snap the pieces if the two sides are sufficiently aligned
-		if (distance(midpointA, midpointB) < puzzle.snapThreshold) {
-			console.log('Snap pieces on side ' + side);          // Debug code
+		if (getDistance(midpointA, midpointB) < puzzle.snapThreshold) {
+			joinPieces(comparePiece, piece);           // Provide the current piece as the second argument so it moves instead of the compared piece
+			checkVictory();                            // Check to see if we've beaten the game or not
 		}
-		
-		// Debug
-		comparePiece.setAttributeNS(null, "stroke-width", "3");
-		comparePiece.setAttributeNS(null, "stroke", "red");
 	}
 }
+
+
+/**
+ * Join two groups of pieces together, moving pieceB to align with pieceA as necessary
+ * @param SVGPath pieceA The piece to align to and merge into
+ * @param SVGPath pieceB The piece to align and group into pieceA
+ */
+function joinPieces(pieceA, pieceB) {
+	// Move all pieces in the pieceB's group into pieceA's group
+	var group = pieceB.parentNode;
+	while (group.firstChild) {
+		pieceA.parentNode.appendChild(group.firstChild);
+	}
+	
+	// Remove the empty group
+	group.parentNode.removeChild(group);
+}
+
 
 /**
  * Returns the screen coordinates for a given puzzle piece's base box (puzzle piece without nubs considered)
@@ -396,8 +410,8 @@ function getPiecePosition(piece) {
 	
 	// Determine the top-left coordinate, accounting for any movements from its natural position caused by translations
 	var box = {
-		x1: piece.matrix[4] + puzzle.nubWidth,      // Include the nub width here since the sides are missing nubs, but the base positioning takes them into account
-		y1: piece.matrix[5] + puzzle.nubHeight
+		x1: (rowCol.column * puzzle.pieceWidth) + piece.parentNode.matrix[4] + puzzle.nubWidth,      // Include the nub width here since the sides are missing nubs, but the base positioning takes them into account
+		y1: (rowCol.row * puzzle.pieceHeight) + piece.parentNode.matrix[5] + puzzle.nubHeight
 	};
 	
 	// The bottom-right coordinates are now easy to determine
@@ -438,7 +452,7 @@ function getMidpoint(box, side) {
  * @param object B An object representing a coordinate, with properties x and y
  * @return float Returns the distance between the two points A and B
  */
-function distance(A, B) {
+function getDistance(A, B) {
 	return Math.sqrt(Math.pow(A.x - B.x, 2) + Math.pow(A.y - B.y, 2));
 }
 
@@ -466,7 +480,6 @@ function getPieceRowCol(piece) {
  */
 function setLimits() {
 	// Determine the limiting settings for puzzle dimensions
-	// It is assumed that the main puzzle has already been loaded and primary dimensions are known
 	maxAcross = Math.min(puzzle.columns, Math.floor(puzzle.width / puzzle.minWidth));
 	maxDown = Math.min(puzzle.rows, Math.floor(puzzle.height / puzzle.minHeight));
 
@@ -477,5 +490,19 @@ function setLimits() {
 
 	if (puzzle.rows > maxDown) {
 		puzzle.rows = maxDown;
+	}
+}
+
+
+/**
+ * Check the game to see if all pieces have been matched
+ */
+function checkVictory() {
+	// Get all puzzle groups so we can count them, victory is achieved when only one group remains
+	var groups = document.getElementsByTagName("g");
+	
+	// Flag victory if only one group was found
+	if (groups.length == 1) {
+		alert("Congratulations, you win!");
 	}
 }

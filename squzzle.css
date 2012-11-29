@@ -2,4 +2,3 @@
 
 svg { background: #EEE; }
 path { position: absolute; cursor: move; }
-.dragging { filter: url(#dropshadow); }
