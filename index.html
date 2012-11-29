@@ -9,7 +9,12 @@
 		<img id="puzzleImg" src="puzzles/puzzle1.jpg" onload="setupPuzzle()">
 	</div>
 	<svg id="viewport" xmlns="http://www.w3.org/2000/svg" version="1.1">
-		<defs id="puzzleDefs"></defs>
+		<rect x="0" y="0" fill="url(#bg)" id="background" />
+		<defs id="puzzleDefs">
+			<pattern id="bg" x="0" y="0" width="280" height="280" patternUnits="userSpaceOnUse">
+				<image xlink:href="images/background.png" width="280" height="280" />
+			</pattern>
+		</defs>
 		<filter id="dropshadow" height="130%" width="150%">
 			<feGaussianBlur in="SourceAlpha" stdDeviation="3"/> <!-- stdDeviation is how much to blur -->
 			<feOffset dx="2" dy="2" result="offsetblur"/> <!-- how much to offset -->

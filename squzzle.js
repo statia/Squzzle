@@ -1,3 +1,5 @@
+// TODO: On double-click of a group, send it to the back (but not below the rect)
+
 var panning = false;            // False when not panning the play area, otherwise an object with properties startX, startY to record where the drag began, taking into account previous drag movements
 var dragPiece = null;           // Puzzle piece currently being dragged
 var startX, startY;             // Position where dragged puzzle piece was grabbed
@@ -51,7 +53,12 @@ function setupPuzzle() {
 	var mainArea = document.getElementById("viewport");
 	mainArea.setAttributeNS(null, "width", "100%");
 	mainArea.setAttributeNS(null, "height", "100%");
-	mainArea.setAttributeNS(null, "viewBox", "0 0" + document.body.offsetWidth + " " + document.body.offsetHeight);
+	mainArea.setAttributeNS(null, "viewBox", "0 0 " + document.body.offsetWidth + " " + document.body.offsetHeight);
+	
+	// Size the background
+	var bg = document.getElementById("background");
+	bg.setAttributeNS(null, "width", puzzle.pieceWidth * puzzle.columns);
+	bg.setAttributeNS(null, "height", puzzle.pieceHeight * puzzle.rows);
 	
 	// Draw the puzzle pieces
 	renderPuzzle();
