@@ -120,6 +120,7 @@ function drawPiece(x, y, width, height, row, column) {
 	
 	// Apply event listeners to the puzzle piece
 	puzzlePiece.addEventListener('mousedown', startDrag, false);
+	group.addEventListener('click', sendToBack, false);
 }
 
 
@@ -263,6 +264,17 @@ function getPieceSides(ux, uy, nubs) {
  */
 function getPieceBox(piece) {
 	return piece.getBBox();
+}
+
+
+/**
+ * Send the double-clicked group to the back if the shift key is held down when clicking
+ */
+function sendToBack(evt) {
+	// Move it to the bottom of the stack, just above the background box
+	if (evt.shiftKey) {
+		document.getElementById("viewport").insertBefore(this, document.getElementById("background"));
+	}
 }
 
 
