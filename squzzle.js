@@ -4,7 +4,7 @@ var panning = false;            // False when not panning the play area, otherwi
 var dragPiece = null;           // Puzzle piece currently being dragged
 var startX, startY;             // Position where dragged puzzle piece was grabbed
 var puzzle = {                  // Object storing all key values
-		difficulty: 8,             // Difficulty level of the puzzle (generally relates to the number of pieces)
+		difficulty: 2,             // Difficulty level of the puzzle (generally relates to the number of pieces)
 		minWidth: 50,              // Minimum allowed width of a single piece, in pixels
 		minHeight: 50,             // Minimum allowed height of a single piece, in pixels
 		rows: null,                // Total rows in the puzzle
@@ -155,8 +155,8 @@ function getNubs(row, column) {
 
 /**
  * Creates a pattern for use with a single puzzle piece
- * @param integer row The row the piece is found in, where the first row is 0 (top)
- * @param integer column The column the piece is found in, where the first column is 0 (left)
+ * @param integer row The row the piece is found in, where the first row is 0 (top); if set to -1, set the pattern to be sized to the full puzzle image, ignore nubs in this case
+ * @param integer column The column the piece is found in, where the first column is 0 (left); ignored if row is -1
  * @param string id The id to give to the pattern, for use when linking shapes to it
  * @param array nubs An array four values of -1, 0, or 1 values, ordered by side going clockwise from the top, where:
  *			 1 means the puzzle piece should come inside the piece on the given side
@@ -171,24 +171,32 @@ function createPiecePattern(row, column, id, nubs) {
 		</pattern>
 	*/
 	
-	// Determine the actual width and height of the piece
-	var actualPieceWidth = puzzle.pieceWidth;         // Base width of the pattern without nubs
-	var actualPieceHeight = puzzle.pieceHeight;       // Base height of the pattern without nubs
 	var offsetX = 0;                                  // Amount to shift pattern by horizontally
 	var offsetY = 0;                                  // Amount to shift pattern by vertically
-	var imageX = -column * puzzle.pieceWidth;         // Horizontal image position within the pattern, offset to match puzzle piece's location
-	var imageY = -row * puzzle.pieceHeight;           // Vertical image position within the pattern, offset to match puzzle piece's location
 	
-	// Adjust actual piece dimensions for nub protrusions
-	if (nubs[0] < 0) { actualPieceHeight += puzzle.nubHeight; imageY += puzzle.nubHeight; }
-	if (nubs[1] < 0) { actualPieceWidth += puzzle.nubWidth; }
-	if (nubs[2] < 0) { actualPieceHeight += puzzle.nubHeight; }
-	if (nubs[3] < 0) { actualPieceWidth += puzzle.nubWidth; imageX += puzzle.nubWidth; }
-
-	// Correct base pattern position for top-left no nub protrusion cases
-	if (nubs[0] >= 0) { offsetY += puzzle.nubHeight; }
-	if (nubs[3] >= 0) { offsetX += puzzle.nubWidth; }
+	if (row == -1) {
+		// Create a pattern for the full puzzle
+		var actualPieceWidth = puzzle.width;         // Width of the entire puzzle
+		var actualPieceHeight = puzzle.height;       // Height of the entire puzzle
+		var imageX = 0;                              // No image shifting for the full puzzle image
+		var imageY = 0;                              // No image shifting for the full puzzle image
+	} else {
+		// Determine the actual width and height of the piece
+		var actualPieceWidth = puzzle.pieceWidth;         // Base width of the pattern without nubs
+		var actualPieceHeight = puzzle.pieceHeight;       // Base height of the pattern without nubs
+		var imageX = -column * puzzle.pieceWidth;         // Horizontal image position within the pattern, offset to match puzzle piece's location
+		var imageY = -row * puzzle.pieceHeight;           // Vertical image position within the pattern, offset to match puzzle piece's location
+		
+		// Adjust actual piece dimensions for nub protrusions
+		if (nubs[0] < 0) { actualPieceHeight += puzzle.nubHeight; imageY += puzzle.nubHeight; }
+		if (nubs[1] < 0) { actualPieceWidth += puzzle.nubWidth; }
+		if (nubs[2] < 0) { actualPieceHeight += puzzle.nubHeight; }
+		if (nubs[3] < 0) { actualPieceWidth += puzzle.nubWidth; imageX += puzzle.nubWidth; }
 	
+		// Correct base pattern position for top-left no nub protrusion cases
+		if (nubs[0] >= 0) { offsetY += puzzle.nubHeight; }
+		if (nubs[3] >= 0) { offsetX += puzzle.nubWidth; }
+	}
 	
 	// Define the base pattern
 	var pattern = document.createElementNS("http://www.w3.org/2000/svg", "pattern");
@@ -273,7 +281,7 @@ function getPieceBox(piece) {
 function sendToBack(evt) {
 	// Move it to the bottom of the stack, just above the background box
 	if (evt.shiftKey) {
-		document.getElementById("viewport").insertBefore(this, document.getElementById("background"));
+		document.getElementById("viewport").insertBefore(this, document.getElementById("background").nextSibling);
 	}
 }
 
@@ -551,5 +559,14 @@ function checkVictory() {
 	// Flag victory if only one group was found
 	if (groups.length == 1) {
 		alert("Congratulations, you win!");
+		
+		// Remove the pieces and set the main display background to the full puzzle image to effectively remove the creases between pieces
+		groups.item(0).parentNode.removeChild(groups.item(0));
+		
+		// Create a full puzzle spanning pattern
+		createPiecePattern(-1, -1, "ALL", null);
+		
+		// Set the background holder to the full puzzle image
+		document.getElementById("background").setAttributeNS(null, "fill", "url(#ALL)");
 	}
 }
