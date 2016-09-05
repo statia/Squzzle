@@ -5,10 +5,10 @@
 	<script type="application/ecmascript" src="squzzle.js"></script>
 	<title>Squzzle</title>
 </head>
-<body>
+<body onload="setupPuzzle()">
 	<div id="log">Action log</div>
 	<div style="width: 0; height: 0; overflow: hidden;">
-		<img id="puzzleImg" src="puzzles/puzzle1.jpg" onload="setupPuzzle()">
+		<img id="puzzleImg" onload="sizeImage()">
 	</div>
 	<svg id="viewport" xmlns="http://www.w3.org/2000/svg" version="1.1">
 		<rect x="0" y="0" fill="url(#bg)" id="background" />

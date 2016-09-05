@@ -10,7 +10,8 @@ var app = {                     // Object storing all global application data
 	pan: { dx: 0, dy: 0 }          // x and y offset of the view based on panning
 };
 var puzzle = {                  // Object storing all key values
-		pieces: 200,               // Approximately how many pieces to have
+		image: 'puzzle1.jpg',            // Puzzle image to use
+		pieces: 64,               // Approximately how many pieces to have
 		minWidth: 50,              // Minimum allowed width of a single piece, in pixels
 		minHeight: 50,             // Minimum allowed height of a single piece, in pixels
 		rows: null,                // Total rows in the puzzle
@@ -24,18 +25,28 @@ var puzzle = {                  // Object storing all key values
 		snapThreshold: 20          // Distance a piece may be from an exact fit before it snaps into place, in pixels
 	};
 
-function logAction(msg) {
-	$('#log').firstChild.nodeValue = $('#log').firstChild.nodeValue + "\n" + msg;
+function logAction(msg, replace) {
+	if (replace) {
+		$('#log').firstChild.nodeValue = msg;
+	} else {
+		$('#log').firstChild.nodeValue = $('#log').firstChild.nodeValue + "\n" + msg;
+	}
 }
+
 
 /**
  * Render the puzzle and perform all setup and initialisations needed
  */
 function setupPuzzle() {
-	// Determine the size of the puzzle
-	puzzle.width = document.getElementById("puzzleImg").width = 800;
-	puzzle.height =	document.getElementById("puzzleImg").height = 800;
+	// Set the completed image
+	$("#puzzleImg").setAttribute("src", "puzzles/" + puzzle.image);
+}
 
+
+/**
+ * Initialise the puzzle based on the loaded image
+ */
+function initialisePuzzle() {
 	// For these dimensions, get the angle of the triangle
 	var angleTan = puzzle.width / puzzle.height;
 
@@ -51,8 +62,8 @@ function setupPuzzle() {
 	puzzle.rows = Math.floor(puzzle.height / pieceHeight);
 	
 	// Determine the dimensions of a single piece
-	puzzle.pieceWidth = Math.floor(pieceWidth);
-	puzzle.pieceHeight = Math.floor(pieceHeight);
+	puzzle.pieceWidth = Math.floor(puzzle.width / puzzle.columns);
+	puzzle.pieceHeight = Math.floor(puzzle.height / puzzle.rows);
 
 	// Calculate the amount an exterior nub will contribute to the side it's on
 	puzzle.nubWidth = puzzle.pieceWidth / 3;
@@ -68,7 +79,7 @@ function setupPuzzle() {
 	document.body.addEventListener('mouseup', endDrag, false);
 	document.body.addEventListener('touchend', endTouchPan, false);
 	document.body.addEventListener('mousewheel', zoomView, false);
-	
+
 	// Size the play area to fit the image
 	var mainArea = $("#viewport");
 	mainArea.setAttributeNS(null, "width", "100%");
@@ -233,7 +244,7 @@ function createPiecePattern(row, column, id, nubs) {
 	
 	// Add the image element
 	var image = document.createElementNS("http://www.w3.org/2000/svg", "image");
-	image.setAttributeNS("http://www.w3.org/1999/xlink", "href", "puzzles/3.jpg");
+	image.setAttributeNS("http://www.w3.org/1999/xlink", "href", "puzzles/" + puzzle.image);
 	image.setAttributeNS(null, "x", imageX);
 	image.setAttributeNS(null, "y", imageY);
 	image.setAttributeNS(null, "width", puzzle.width);
@@ -331,23 +342,44 @@ function startPan(evt) {
  */
 function startTouchPan(evt) {
 	// Don't start touch panning if we are actively dragging pieces
-	for (var draggers in dragPiece) {
-		if (dragPiece.hasOwnProperty(draggers)) {
-			return;
+	if (isDragging()) { return; }
+
+	// Don't handle this event if it's targetting a puzzle piece
+	if (evt.target.nodeName != "path") {
+		// If only one touch has been received and we aren't already panning, treat this as a simple pan
+		if (!panning && (evt.changedTouches.length == 1)) {
+			// Get the viewbox's current position
+			var viewBox = $("#viewport").getAttributeNS(null, "viewBox").split(" ");
+
+			// Record where we started dragging
+			panning = {
+				touch1: evt.changedTouches[0], // Track the first touch in case we start resizing later
+				touchId: evt.changedTouches[0].identifier, // Tracks which touch point is dragging the board so we know when to end
+				startX: (evt.changedTouches[0].clientX * app.zoomLevel) + parseInt(viewBox[0], 10),
+				startY: (evt.changedTouches[0].clientY * app.zoomLevel) + parseInt(viewBox[1], 10)
+			};
+		} else {
+			// A new touch has arrived, stop panning and begin a resize operation
+			if (panning) {
+				// Add the newest touch as the reference touch
+				if (evt.changedTouches[0].identifier == panning.touch1.identifier) {
+					// The second touch is the new one
+					panning.touch2 = evt.changedTouches[1];
+				} else {
+					// The first touch is the new one
+					panning.touch2 = evt.changedTouches[0];
+				}
+			} else {
+				// Resize operation directly started due to receiving two (or more) new touches while not already panning
+				panning = {
+					touch1: evt.changedTouches[0], // Tracks which the base touch point for resizing
+					touch2: evt.changedTouches[1]  // Tracks the reference touch point for resizing
+				};
+			}
+
+			// Store the initial separation so we don't consider that when resizing
+			panning.separation = getTouchDistance(panning.touch1, panning.touch2);
 		}
-	}
-
-	// Do not start a new pan if there is already one in progress and if the target isn't a piece
-	if ((panning === false) && (evt.target.nodeName != "path")) {
-		// Get the viewbox's current position
-		var viewBox = $("#viewport").getAttributeNS(null, "viewBox").split(" ");
-
-		// Record where we started dragging
-		panning = {
-			touchId: evt.changedTouches[0].identifier, // Tracks which touch point is dragging the board so we know when to end
-			startX: (evt.changedTouches[0].clientX * app.zoomLevel) + parseInt(viewBox[0], 10),
-			startY: (evt.changedTouches[0].clientY * app.zoomLevel) + parseInt(viewBox[1], 10)
-		};
 	}
 }
 
@@ -487,23 +519,43 @@ function moveTouchPan(evt) {
 	evt.preventDefault();
 
 	if (panning) {
-		// Find the dragging touch point
-		for (var i = 0; i < evt.changedTouches.length; i++) {
-			if (panning.touchId == evt.changedTouches[i].identifier) {
-				touch = evt.changedTouches[i];
-				break;
+		// If resizing, set the zoom level based on the screen distance between touches
+		if (panning.hasOwnProperty('touch2')) {
+			// Update the changed touches
+			for (var i = 0; i < evt.changedTouches.length; i++) {
+				if (panning.touch1.identifier == evt.changedTouches.item(i).identifier) {
+					panning.touch1 = evt.changedTouches.item(i);
+				} else if (panning.touch2.identifier == evt.changedTouches.item(i).identifier) {
+					panning.touch2 = evt.changedTouches.item(i);
+				}
 			}
+
+			// Calculate the change in position
+			var touchSeparation = Math.max(0.1, getTouchDistance(panning.touch1, panning.touch2)); // Current separation of the touch points, preventing a zero value as it would break the calculation
+			var zoomChange = panning.separation / touchSeparation;
+			panning.separation = touchSeparation; // Update the last known touch separation
+			setZoom(zoomChange * app.zoomLevel); // Apply the zoom change as a factor of the change in separation
+		} else {
+			// Otherwise, treat this as a pan
+
+			// Find the dragging touch point
+			for (var i = 0; i < evt.changedTouches.length; i++) {
+				if (panning.touchId == evt.changedTouches[i].identifier) {
+					touch = evt.changedTouches[i];
+					break;
+				}
+			}
+
+			// Do not update the board's position if the dragging touch didn't move
+			if (!touch) { return; }
+
+			// Determine where we've moved
+			app.pan.dx = panning.startX - (touch.clientX * app.zoomLevel);
+			app.pan.dy = panning.startY - (touch.clientY * app.zoomLevel);
+
+			// Move the main play area
+			updateViewbox();
 		}
-
-		// Do not update the board's position if the dragging touch didn't move
-		if (!touch) { return; }
-
-		// Determine where we've moved
-		app.pan.dx = panning.startX - (touch.clientX * app.zoomLevel);
-		app.pan.dy = panning.startY - (touch.clientY * app.zoomLevel);
-
-		// Move the main play area
-		updateViewbox();
 	}
 }
 
@@ -533,10 +585,12 @@ function endTouchDrag(evt) {
  * @param evt {Object} The touch event
  */
 function endTouchPan(evt) {
-	if (panning && (panning.touchId != 'mouse')) {
+	if (panning) {
 		for (var i = 0; i < evt.changedTouches.length; i++) {
 			// Only stop dragging the board if the ended touch is the one that initially started dragging it
-			if (panning.touchId == evt.changedTouches[i].identifier) {
+			if (panning.touch1.identifier == evt.changedTouches[i].identifier) {
+				panning = false;
+			} else if (panning.touch2 && panning.touch2.identifier == evt.changedTouches[i].identifier) {
 				panning = false;
 			}
 		}
@@ -559,6 +613,18 @@ function endDrag(evt) {
 
 	// Stop panning the play area
 	panning = false;
+}
+
+
+/**
+ * Returns the screen distance between two touch points
+ * @param touch1 {Object} The first touch object
+ * @param touch2 {Object} The second touch object
+ * @return {Number} Returns the screen distance between the two touches
+ */
+function getTouchDistance(touch1, touch2) {
+	// Derive the screen separation between the points
+	return getDistance({ x: touch1.clientX, y: touch1.clientY }, { x: touch2.clientX, y: touch2.clientY });
 }
 
 
@@ -776,19 +842,37 @@ function zoomView(evt) {
  */
 function setZoom(level) {
 	// Disallow zooming while dragging a piece
-	if (dragPiece) { return; }
+	if (isDragging()) { return; }
 
 	var prevZoom = app.zoomLevel;       // Get the previous zoom level to allow us to keep the view centered
 
 	// Prevent the zoom from going too low or too high
-	app.zoomLevel = Math.min(4, Math.max(0.1, level));
+	//app.zoomLevel = Math.min(4, Math.max(0.001, level));
+	app.zoomLevel = level;
 
 	// We also need to adjust the pan to keep the centre in the centre of the window
-	app.pan.dx += ((document.body.offsetWidth / 2 * prevZoom) - (document.body.offsetWidth / 2 * app.zoomLevel));
-	app.pan.dy += ((document.body.offsetHeight / 2 * prevZoom) - (document.body.offsetHeight / 2 * app.zoomLevel));
+	app.pan.dx += ((document.body.offsetWidth * prevZoom / 2) - (document.body.offsetWidth * app.zoomLevel / 2));
+	app.pan.dy += ((document.body.offsetHeight * prevZoom / 2) - (document.body.offsetHeight * app.zoomLevel / 2));
 
 	// Update the viewport to reflect the zoom change
 	updateViewbox();
+}
+
+
+/**
+ * Returns true if any piece is being dragged
+ * @return {Boolean} Returns true if any piece is being dragged, false otherwise
+ */
+function isDragging() {
+	for (var draggers in dragPiece) {
+		if (dragPiece.hasOwnProperty(draggers)) {
+			// A dragged piece found
+			return true;
+		}
+	}
+
+	// No pieces are being dragged
+	return false;
 }
 
 
@@ -814,4 +898,20 @@ function dropPiece(evt) {
 
 	// Terminate the drag
 	endDrag();
+}
+
+
+/**
+ * Set the size of the puzzle
+ */
+function sizeImage() {
+	// Get the puzzle image
+	var puzzImg = $("#puzzleImg");
+
+	// Determine the size of the puzzle
+	puzzle.width = document.getElementById("puzzleImg").width = puzzImg.offsetWidth;
+	puzzle.height =	document.getElementById("puzzleImg").height = puzzImg.offsetHeight;
+
+	// Continue to initialise the puzzle
+	initialisePuzzle();
 }
