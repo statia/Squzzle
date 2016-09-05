@@ -3,14 +3,14 @@ $ = function(selector) { return document.querySelector(selector); };
 $$ = function(selector) { return document.querySelectorAll(selector); };
 
 var panning = false;            // False when not panning the play area, otherwise an object with properties startX, startY to record where the drag began, taking into account previous drag movements
-var dragPiece = null;           // Puzzle piece currently being dragged
+var dragPiece = {};             // Set of pieces currently being dragged where the property is either "mouse" if the mouse started moving it or else "touch#" where # is the touch identifier
 var startX, startY;             // Position where dragged puzzle piece was grabbed
 var app = {                     // Object storing all global application data
 	zoomLevel: 1,                  // Current zoom level, where 1 represents no scaling
 	pan: { dx: 0, dy: 0 }          // x and y offset of the view based on panning
 };
 var puzzle = {                  // Object storing all key values
-		difficulty: 7,             // Difficulty level of the puzzle (generally relates to the number of pieces)
+		pieces: 16,               // Approximately how many pieces to have
 		minWidth: 50,              // Minimum allowed width of a single piece, in pixels
 		minHeight: 50,             // Minimum allowed height of a single piece, in pixels
 		rows: null,                // Total rows in the puzzle
@@ -24,6 +24,9 @@ var puzzle = {                  // Object storing all key values
 		snapThreshold: 20          // Distance a piece may be from an exact fit before it snaps into place, in pixels
 	};
 
+function logAction(msg) {
+	$('#log').firstChild.nodeValue = $('#log').firstChild.nodeValue + "\n" + msg;
+}
 
 /**
  * Render the puzzle and perform all setup and initialisations needed
@@ -33,27 +36,37 @@ function setupPuzzle() {
 	puzzle.width = document.getElementById("puzzleImg").width = 800;
 	puzzle.height =	document.getElementById("puzzleImg").height = 800;
 
+	// For these dimensions, get the angle of the triangle
+	var angleTan = puzzle.width / puzzle.height;
+
+	// Determine the area of each piece
+	var pieceArea = puzzle.width * puzzle.height / puzzle.pieces;
+
+	// Determine the size of each piece (without nubs)
+	var pieceHeight = Math.sqrt(pieceArea / angleTan);
+	var pieceWidth = pieceArea / pieceHeight;
+
 	// Calculate how many rows and columns of pieces we will have
-	puzzle.columns = Math.floor((puzzle.width/puzzle.height) * puzzle.difficulty);
-	puzzle.rows = Math.floor((puzzle.width/puzzle.width) * puzzle.difficulty);
+	puzzle.columns = Math.floor(puzzle.width / pieceWidth);
+	puzzle.rows = Math.floor(puzzle.height / pieceHeight);
 	
 	// Determine the dimensions of a single piece
-	puzzle.pieceWidth = Math.floor(puzzle.width / puzzle.columns);
-	puzzle.pieceHeight = Math.floor(puzzle.height / puzzle.rows);
-	
+	puzzle.pieceWidth = Math.floor(pieceWidth);
+	puzzle.pieceHeight = Math.floor(pieceHeight);
+
 	// Calculate the amount an exterior nub will contribute to the side it's on
 	puzzle.nubWidth = puzzle.pieceWidth / 3;
 	puzzle.nubHeight = puzzle.pieceHeight / 3;
-	
-	// Validate these selected values
-	setLimits();
 
 	// Setup pan dragging, which allows moving around the screen by dragging the background
 	document.body.addEventListener('mousedown', startPan, false);
-	
+	document.body.addEventListener('touchstart', startTouchPan, false);
+
 	// Listen to drag events at the root in case we move too fast on a piece	
 	document.body.addEventListener('mousemove', moveDrag, false);
+	document.body.addEventListener('touchmove', moveTouchDrag, false);
 	document.body.addEventListener('mouseup', endDrag, false);
+	document.body.addEventListener('touchend', endTouchDrag, false);
 	document.body.addEventListener('mousewheel', zoomView, false);
 	
 	// Size the play area to fit the image
@@ -66,7 +79,7 @@ function setupPuzzle() {
 	var bg = $("#background");
 	bg.setAttributeNS(null, "width", puzzle.pieceWidth * puzzle.columns);
 	bg.setAttributeNS(null, "height", puzzle.pieceHeight * puzzle.rows);
-	
+
 	// Draw the puzzle pieces
 	renderPuzzle();
 }
@@ -100,10 +113,10 @@ function drawPiece(x, y, width, height, row, column) {
 	// Define the units of measure for the puzzle piece
 	var ux = width / 12;
 	var uy = height / 12;
-	
+
 	// Create the wrapping group for the piece
 	var group = document.createElementNS("http://www.w3.org/2000/svg", "g");
-	
+
 	// Create the base puzzle piece's path element
 	var puzzlePiece = document.createElementNS("http://www.w3.org/2000/svg", "path");
 	
@@ -129,6 +142,7 @@ function drawPiece(x, y, width, height, row, column) {
 	
 	// Apply event listeners to the puzzle piece
 	puzzlePiece.addEventListener('mousedown', startDrag, false);
+	puzzlePiece.addEventListener('touchstart', startTouchDrag, false);
 	puzzlePiece.addEventListener('dblclick', dropPiece, false);
 	group.addEventListener('click', sendToBack, false);
 }
@@ -219,7 +233,7 @@ function createPiecePattern(row, column, id, nubs) {
 	
 	// Add the image element
 	var image = document.createElementNS("http://www.w3.org/2000/svg", "image");
-	image.setAttributeNS("http://www.w3.org/1999/xlink", "href", "puzzles/puzzle1.jpg");
+	image.setAttributeNS("http://www.w3.org/1999/xlink", "href", "puzzles/3.jpg");
 	image.setAttributeNS(null, "x", imageX);
 	image.setAttributeNS(null, "y", imageY);
 	image.setAttributeNS(null, "width", puzzle.width);
@@ -305,9 +319,29 @@ function startPan(evt) {
 	
 	// Record where we started dragging
 	panning = {
+		touchId: 'mouse',
 		startX: (evt.clientX * app.zoomLevel) + parseInt(viewBox[0], 10),
 		startY: (evt.clientY * app.zoomLevel) + parseInt(viewBox[1], 10)
 	};
+}
+
+
+/**
+ * Begin panning the main view by touch
+ */
+function startTouchPan(evt) {
+	// Do not start a new pan if there is already one in progress
+	if (panning === false) {
+		// Get the viewbox's current position
+		var viewBox = $("#viewport").getAttributeNS(null, "viewBox").split(" ");
+
+		// Record where we started dragging
+		panning = {
+			touchId: evt.changedTouches[0].identifier, // Tracks which touch point is dragging the board so we know when to end
+			startX: (evt.changedTouches[0].clientX * app.zoomLevel) + parseInt(viewBox[0], 10),
+			startY: (evt.changedTouches[0].clientY * app.zoomLevel) + parseInt(viewBox[1], 10)
+		};
+	}
 }
 
 
@@ -316,22 +350,50 @@ function startPan(evt) {
  */
 function startDrag(evt) {
 	// Drop any other pieces being dragged before starting another one
+	if (dragPiece.mouse) { endDrag(); }
+
+	// Store a reference to the dragged piece
+	dragPiece.mouse = evt.target.parentNode;
+	
+	// Apply the drag handlers to handle moving it around the screen
+	dragPiece.mouse.addEventListener('mousemove', moveDrag, false);
+	dragPiece.mouse.addEventListener('mouseup', endDrag, false);
+	
+	// Get the starting position to drag from to allow us to monitor movements later
+	startX = evt.clientX * app.zoomLevel - dragPiece.mouse.matrix[4];
+	startY = evt.clientY * app.zoomLevel - dragPiece.mouse.matrix[5];
+	
+	// Move the element to the top
+	dragPiece.mouse.parentNode.appendChild(dragPiece.mouse);
+	
+	// Pick up the piece, casting a shadow
+	var angle = Math.random() * 0.2 - 0.1;
+	dragPiece.mouse.setAttributeNS(null, 'transform', 'matrix(' + dragPiece.mouse.matrix.join(',') + ')');
+}
+
+
+/**
+ * Handle grabbing a puzzle piece by touch
+ */
+function startTouchDrag(evt) {
+	// Drop any other pieces being dragged before starting another one
 	if (dragPiece) { endDrag(); }
 
 	// Store a reference to the dragged piece
 	dragPiece = evt.target.parentNode;
-	
+	dragPiece.touchId = evt.targetTouches[0].identifier; // Track which touch point is moving this piece so we only drop it in response to that touch ending
+
 	// Apply the drag handlers to handle moving it around the screen
-	dragPiece.addEventListener('mousemove', moveDrag, false);
-	dragPiece.addEventListener('mouseup', endDrag, false);
-	
+	dragPiece.addEventListener('touchmove', moveTouchDrag, false);
+	dragPiece.addEventListener('touchend', endTouchDrag, false);
+
 	// Get the starting position to drag from to allow us to monitor movements later
-	startX = evt.clientX * app.zoomLevel - dragPiece.matrix[4];
-	startY = evt.clientY * app.zoomLevel - dragPiece.matrix[5];
-	
+	startX = evt.targetTouches[0].clientX * app.zoomLevel - dragPiece.matrix[4];
+	startY = evt.targetTouches[0].clientY * app.zoomLevel - dragPiece.matrix[5];
+
 	// Move the element to the top
 	dragPiece.parentNode.appendChild(dragPiece);
-	
+
 	// Pick up the piece, casting a shadow
 	var angle = Math.random() * 0.2 - 0.1;
 	dragPiece.setAttributeNS(null, 'transform', 'matrix(' + dragPiece.matrix.join(',') + ')');
@@ -342,20 +404,20 @@ function startDrag(evt) {
  * Handle moving a dragged puzzle piece
  */
 function moveDrag(evt) {
-	if (dragPiece) {
+	if (dragPiece.mouse) {
 		// Get the current position and determine the offsets
 		var dx = (evt.clientX * app.zoomLevel) - startX;
 		var dy = (evt.clientY * app.zoomLevel) - startY;
 		
 		// Move the piece to the new position
-		dragPiece.matrix[4] = dx;
-		dragPiece.matrix[5] = dy;
-		dragPiece.setAttributeNS(null, 'transform', 'matrix(' + dragPiece.matrix.join(',') + ')');
+		dragPiece.mouse.matrix[4] = dx;
+		dragPiece.mouse.matrix[5] = dy;
+		dragPiece.mouse.setAttributeNS(null, 'transform', 'matrix(' + dragPiece.mouse.matrix.join(',') + ')');
 	} else if (panning) {
 		// Determine where we've moved
 		app.pan.dx = panning.startX - (evt.clientX * app.zoomLevel);
 		app.pan.dy = panning.startY - (evt.clientY * app.zoomLevel);
-		
+
 		// Move the main play area
 		updateViewbox();
 	}
@@ -363,13 +425,88 @@ function moveDrag(evt) {
 
 
 /**
+ * Handle moving a dragged puzzle piece by touch
+ */
+function moveTouchDrag(evt) {
+	// Prevent gestures using the drag
+	evt.preventDefault();
+
+	var touch = false; // Touch point that is dragging the piece or board
+
+	if (dragPiece) {
+		// Find the dragging touch point
+		for (var i = 0; i < evt.changedTouches.length; i++) {
+			if (dragPiece.touchId == evt.changedTouches[i].identifier) {
+				touch = evt.changedTouches[i];
+				break;
+			}
+		}
+
+		// Do not update the piece's position if the dragging touch didn't move
+		if (!touch) { return; }
+
+		// Get the current position and determine the offsets
+		var dx = (touch.clientX * app.zoomLevel) - startX;
+		var dy = (touch.clientY * app.zoomLevel) - startY;
+
+		// Move the piece to the new position
+		dragPiece.matrix[4] = dx;
+		dragPiece.matrix[5] = dy;
+		dragPiece.setAttributeNS(null, 'transform', 'matrix(' + dragPiece.matrix.join(',') + ')');
+	} else if (panning) {
+		// Find the dragging touch point
+		for (var i = 0; i < evt.changedTouches.length; i++) {
+			if (panning.touchId == evt.changedTouches[i].identifier) {
+				touch = evt.changedTouches[i];
+				break;
+			}
+		}
+
+		// Do not update the board's position if the dragging touch didn't move
+		if (!touch) { return; }
+
+		// Determine where we've moved
+		app.pan.dx = panning.startX - (touch.clientX * app.zoomLevel);
+		app.pan.dy = panning.startY - (touch.clientY * app.zoomLevel);
+
+		// Move the main play area
+		updateViewbox();
+	}
+}
+
+
+/**
+ * Verify the ended touch is the one dragging the piece or board and drop it if so
+ * @param evt {Object} The touch event
+ */
+function endTouchDrag(evt) {
+	if (dragPiece) {
+		for (var i = 0; i < evt.changedTouches.length; i++) {
+			// Only drop the piece if the ended touch is the one that initially started dragging the piece
+			if (dragPiece.touchId == evt.changedTouches[i].identifier) {
+				endDrag(evt);
+			}
+		}
+	} else if (panning && (panning.touchId != 'mouse')) {
+		for (var i = 0; i < evt.changedTouches.length; i++) {
+			// Only stop dragging the board if the ended touch is the one that initially started dragging it
+			if (panning.touchId == evt.changedTouches[i].identifier) {
+				panning = false;
+			}
+		}
+	}
+}
+
+
+/**
  * Handle dropping a puzzle piece
+ * @param evt {Object} The mouse event
  */
 function endDrag(evt) {
-	if (dragPiece) {
+	if (dragPiece.mouse) {
 		// Create an array of pieces in the current group, so that when we check for snapping, merges that occur won't disrupt the loop
 		var pieces = [];
-		for (var i = 0; i < dragPiece.childNodes.length; i++) { pieces.push(dragPiece.childNodes.item(i)); }
+		for (var i = 0; i < dragPiece.mouse.childNodes.length; i++) { pieces.push(dragPiece.mouse.childNodes.item(i)); }
 		
 		// Check to see if the piece should snap to any matching pieces adjacent to it (check all pieces in the dragged group)
 		for (var i = 0; i < pieces.length; i++) {
@@ -377,19 +514,21 @@ function endDrag(evt) {
 		}
 		
 		// Drop the piece, clearing any special transformations that may have been made
-		dragPiece.matrix[0] = 1;
-		dragPiece.matrix[1] = 0;
-		dragPiece.matrix[2] = 0;
-		dragPiece.matrix[3] = 1;
-		dragPiece.setAttributeNS(null, 'transform', 'matrix(' + dragPiece.matrix.join(',') + ')');
+		dragPiece.mouse.matrix[0] = 1;
+		dragPiece.mouse.matrix[1] = 0;
+		dragPiece.mouse.matrix[2] = 0;
+		dragPiece.mouse.matrix[3] = 1;
+		dragPiece.mouse.setAttributeNS(null, 'transform', 'matrix(' + dragPiece.mouse.matrix.join(',') + ')');
 		
 		// Remove the drag handlers, since we are no longer moving the piece
-		dragPiece.removeEventListener('mousemove', moveDrag, false);
-		dragPiece.removeEventListener('mouseup', endDrag, false);
-		dragPiece.removeEventListener('mouseout', endDrag, false);
-		
+		dragPiece.mouse.removeEventListener('mousemove', moveDrag, false);
+		dragPiece.mouse.removeEventListener('mouseup', endDrag, false);
+		dragPiece.mouse.removeEventListener('mouseout', endDrag, false);
+		dragPiece.mouse.removeEventListener('touchmove', moveTouchDrag, false);
+		dragPiece.mouse.removeEventListener('touchend', endTouchDrag, false);
+
 		// Deselect the piece to prevent any further movement
-		dragPiece = null;
+		delete dragPiece.mouse;
 	}
 
 	// Stop panning the play area
@@ -535,25 +674,6 @@ function getPieceRowCol(piece) {
 	return {
 		row: parseInt(position[0], 10),
 		column: parseInt(position[1], 10)
-	}
-}
-
-
-/**
- * Ensure the selected values for the puzzle have not gone beyond acceptable limits and adjust them if so
- */
-function setLimits() {
-	// Determine the limiting settings for puzzle dimensions
-	maxAcross = Math.min(puzzle.columns, Math.floor(puzzle.width / puzzle.minWidth));
-	maxDown = Math.min(puzzle.rows, Math.floor(puzzle.height / puzzle.minHeight));
-
-	// Check to make sure current settings are within bounds
-	if (puzzle.columns > maxAcross) {
-		puzzle.columns = maxAcross;
-	}
-
-	if (puzzle.rows > maxDown) {
-		puzzle.rows = maxDown;
 	}
 }
 
