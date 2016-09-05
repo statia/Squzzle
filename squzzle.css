@@ -14,7 +14,7 @@ body { /* Disable text selection to prevent issues dragging after a double-click
 }
 
 #log {
-	xdisplay: none;
+	display: none;
 	position: absolute;
 	font-size: 20px;
 	padding: 6px;
