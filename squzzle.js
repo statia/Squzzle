@@ -4,13 +4,13 @@ $$ = function(selector) { return document.querySelectorAll(selector); };
 
 var panning = false;            // False when not panning the play area, otherwise an object with properties startX, startY to record where the drag began, taking into account previous drag movements
 var dragPiece = {};             // Set of pieces currently being dragged where the property is either "mouse" if the mouse started moving it or else "touch#" where # is the touch identifier
-var startX, startY;             // Position where dragged puzzle piece was grabbed
+// touchedPiece.startX, touchedPiece.startY;             // Position where dragged puzzle piece was grabbed
 var app = {                     // Object storing all global application data
 	zoomLevel: 1,                  // Current zoom level, where 1 represents no scaling
 	pan: { dx: 0, dy: 0 }          // x and y offset of the view based on panning
 };
 var puzzle = {                  // Object storing all key values
-		pieces: 16,               // Approximately how many pieces to have
+		pieces: 200,               // Approximately how many pieces to have
 		minWidth: 50,              // Minimum allowed width of a single piece, in pixels
 		minHeight: 50,             // Minimum allowed height of a single piece, in pixels
 		rows: null,                // Total rows in the puzzle
@@ -64,9 +64,9 @@ function setupPuzzle() {
 
 	// Listen to drag events at the root in case we move too fast on a piece	
 	document.body.addEventListener('mousemove', moveDrag, false);
-	document.body.addEventListener('touchmove', moveTouchDrag, false);
+	document.body.addEventListener('touchmove', moveTouchPan, false);
 	document.body.addEventListener('mouseup', endDrag, false);
-	document.body.addEventListener('touchend', endTouchDrag, false);
+	document.body.addEventListener('touchend', endTouchPan, false);
 	document.body.addEventListener('mousewheel', zoomView, false);
 	
 	// Size the play area to fit the image
@@ -330,8 +330,15 @@ function startPan(evt) {
  * Begin panning the main view by touch
  */
 function startTouchPan(evt) {
-	// Do not start a new pan if there is already one in progress
-	if (panning === false) {
+	// Don't start touch panning if we are actively dragging pieces
+	for (var draggers in dragPiece) {
+		if (dragPiece.hasOwnProperty(draggers)) {
+			return;
+		}
+	}
+
+	// Do not start a new pan if there is already one in progress and if the target isn't a piece
+	if ((panning === false) && (evt.target.nodeName != "path")) {
 		// Get the viewbox's current position
 		var viewBox = $("#viewport").getAttributeNS(null, "viewBox").split(" ");
 
@@ -349,6 +356,9 @@ function startTouchPan(evt) {
  * Handle grabbing a puzzle piece
  */
 function startDrag(evt) {
+	// Prevent dragging pieces if the board is being panned
+	if (panning) { return; }
+
 	// Drop any other pieces being dragged before starting another one
 	if (dragPiece.mouse) { endDrag(); }
 
@@ -360,8 +370,8 @@ function startDrag(evt) {
 	dragPiece.mouse.addEventListener('mouseup', endDrag, false);
 	
 	// Get the starting position to drag from to allow us to monitor movements later
-	startX = evt.clientX * app.zoomLevel - dragPiece.mouse.matrix[4];
-	startY = evt.clientY * app.zoomLevel - dragPiece.mouse.matrix[5];
+	dragPiece.mouse.startX = evt.clientX * app.zoomLevel - dragPiece.mouse.matrix[4];
+	dragPiece.mouse.startY = evt.clientY * app.zoomLevel - dragPiece.mouse.matrix[5];
 	
 	// Move the element to the top
 	dragPiece.mouse.parentNode.appendChild(dragPiece.mouse);
@@ -376,27 +386,38 @@ function startDrag(evt) {
  * Handle grabbing a puzzle piece by touch
  */
 function startTouchDrag(evt) {
-	// Drop any other pieces being dragged before starting another one
-	if (dragPiece) { endDrag(); }
+	// Prevent dragging pieces if the board is being panned
+	if (panning) { return; }
+
+	// Make sure the target piece isn't already being actively dragged
+	for (var draggers in dragPiece) {
+		if (dragPiece.hasOwnProperty(draggers) && (dragPiece[draggers] == evt.target)) {
+			return;
+		}
+	}
+
+	// Get the relevant starting touch
+	var touch = evt.targetTouches[0];
 
 	// Store a reference to the dragged piece
-	dragPiece = evt.target.parentNode;
-	dragPiece.touchId = evt.targetTouches[0].identifier; // Track which touch point is moving this piece so we only drop it in response to that touch ending
+	dragPiece["touch" + touch.identifier] = evt.target.parentNode;
+	var touchedPiece = dragPiece["touch" + touch.identifier]; // Get a quick reference to this new entry
+	touchedPiece.touchId = evt.targetTouches[0].identifier; // Track which touch point is moving this piece so we only drop it in response to that touch ending
 
 	// Apply the drag handlers to handle moving it around the screen
-	dragPiece.addEventListener('touchmove', moveTouchDrag, false);
-	dragPiece.addEventListener('touchend', endTouchDrag, false);
+	touchedPiece.addEventListener('touchmove', moveTouchDrag, false);
+	touchedPiece.addEventListener('touchend', endTouchDrag, false);
 
 	// Get the starting position to drag from to allow us to monitor movements later
-	startX = evt.targetTouches[0].clientX * app.zoomLevel - dragPiece.matrix[4];
-	startY = evt.targetTouches[0].clientY * app.zoomLevel - dragPiece.matrix[5];
+	touchedPiece.startX = evt.targetTouches[0].clientX * app.zoomLevel - touchedPiece.matrix[4];
+	touchedPiece.startY = evt.targetTouches[0].clientY * app.zoomLevel - touchedPiece.matrix[5];
 
 	// Move the element to the top
-	dragPiece.parentNode.appendChild(dragPiece);
+	touchedPiece.parentNode.appendChild(touchedPiece);
 
 	// Pick up the piece, casting a shadow
 	var angle = Math.random() * 0.2 - 0.1;
-	dragPiece.setAttributeNS(null, 'transform', 'matrix(' + dragPiece.matrix.join(',') + ')');
+	touchedPiece.setAttributeNS(null, 'transform', 'matrix(' + touchedPiece.matrix.join(',') + ')');
 }
 
 
@@ -406,8 +427,8 @@ function startTouchDrag(evt) {
 function moveDrag(evt) {
 	if (dragPiece.mouse) {
 		// Get the current position and determine the offsets
-		var dx = (evt.clientX * app.zoomLevel) - startX;
-		var dy = (evt.clientY * app.zoomLevel) - startY;
+		var dx = (evt.clientX * app.zoomLevel) - dragPiece.mouse.startX;
+		var dy = (evt.clientY * app.zoomLevel) - dragPiece.mouse.startY;
 		
 		// Move the piece to the new position
 		dragPiece.mouse.matrix[4] = dx;
@@ -432,11 +453,12 @@ function moveTouchDrag(evt) {
 	evt.preventDefault();
 
 	var touch = false; // Touch point that is dragging the piece or board
+	var touchedPiece = evt.target.parentNode; // Get the piece that is being moved
 
-	if (dragPiece) {
+	if (dragPiece.hasOwnProperty("touch" + touchedPiece.touchId)) {
 		// Find the dragging touch point
 		for (var i = 0; i < evt.changedTouches.length; i++) {
-			if (dragPiece.touchId == evt.changedTouches[i].identifier) {
+			if (touchedPiece.touchId == evt.changedTouches[i].identifier) {
 				touch = evt.changedTouches[i];
 				break;
 			}
@@ -446,14 +468,25 @@ function moveTouchDrag(evt) {
 		if (!touch) { return; }
 
 		// Get the current position and determine the offsets
-		var dx = (touch.clientX * app.zoomLevel) - startX;
-		var dy = (touch.clientY * app.zoomLevel) - startY;
+		var dx = (touch.clientX * app.zoomLevel) - touchedPiece.startX;
+		var dy = (touch.clientY * app.zoomLevel) - touchedPiece.startY;
 
 		// Move the piece to the new position
-		dragPiece.matrix[4] = dx;
-		dragPiece.matrix[5] = dy;
-		dragPiece.setAttributeNS(null, 'transform', 'matrix(' + dragPiece.matrix.join(',') + ')');
-	} else if (panning) {
+		touchedPiece.matrix[4] = dx;
+		touchedPiece.matrix[5] = dy;
+		touchedPiece.setAttributeNS(null, 'transform', 'matrix(' + touchedPiece.matrix.join(',') + ')');
+	}
+}
+
+
+/**
+ * Handle moving a dragged board by touch
+ */
+function moveTouchPan(evt) {
+	// Prevent gestures using the drag
+	evt.preventDefault();
+
+	if (panning) {
 		// Find the dragging touch point
 		for (var i = 0; i < evt.changedTouches.length; i++) {
 			if (panning.touchId == evt.changedTouches[i].identifier) {
@@ -476,18 +509,31 @@ function moveTouchDrag(evt) {
 
 
 /**
- * Verify the ended touch is the one dragging the piece or board and drop it if so
+ * Verify the ended touch is the one dragging the piece and drop it if so
  * @param evt {Object} The touch event
  */
 function endTouchDrag(evt) {
-	if (dragPiece) {
+	var touchedPiece = evt.target.parentNode; // Get the piece being dropped
+
+	// Only continue if that piece was being dragged
+	if (dragPiece["touch" + touchedPiece.touchId]) {
 		for (var i = 0; i < evt.changedTouches.length; i++) {
 			// Only drop the piece if the ended touch is the one that initially started dragging the piece
-			if (dragPiece.touchId == evt.changedTouches[i].identifier) {
-				endDrag(evt);
+			if (touchedPiece.touchId == evt.changedTouches[i].identifier) {
+				setPiece(touchedPiece);
+				delete dragPiece["touch" + touchedPiece.touchId]; // Clear the drag entry for this touch point
 			}
 		}
-	} else if (panning && (panning.touchId != 'mouse')) {
+	}
+}
+
+
+/**
+ * Verify the ended touch is the one dragging the board and drop it if so
+ * @param evt {Object} The touch event
+ */
+function endTouchPan(evt) {
+	if (panning && (panning.touchId != 'mouse')) {
 		for (var i = 0; i < evt.changedTouches.length; i++) {
 			// Only stop dragging the board if the ended touch is the one that initially started dragging it
 			if (panning.touchId == evt.changedTouches[i].identifier) {
@@ -504,28 +550,8 @@ function endTouchDrag(evt) {
  */
 function endDrag(evt) {
 	if (dragPiece.mouse) {
-		// Create an array of pieces in the current group, so that when we check for snapping, merges that occur won't disrupt the loop
-		var pieces = [];
-		for (var i = 0; i < dragPiece.mouse.childNodes.length; i++) { pieces.push(dragPiece.mouse.childNodes.item(i)); }
-		
-		// Check to see if the piece should snap to any matching pieces adjacent to it (check all pieces in the dragged group)
-		for (var i = 0; i < pieces.length; i++) {
-			snapPiece(pieces[i]);
-		}
-		
-		// Drop the piece, clearing any special transformations that may have been made
-		dragPiece.mouse.matrix[0] = 1;
-		dragPiece.mouse.matrix[1] = 0;
-		dragPiece.mouse.matrix[2] = 0;
-		dragPiece.mouse.matrix[3] = 1;
-		dragPiece.mouse.setAttributeNS(null, 'transform', 'matrix(' + dragPiece.mouse.matrix.join(',') + ')');
-		
-		// Remove the drag handlers, since we are no longer moving the piece
-		dragPiece.mouse.removeEventListener('mousemove', moveDrag, false);
-		dragPiece.mouse.removeEventListener('mouseup', endDrag, false);
-		dragPiece.mouse.removeEventListener('mouseout', endDrag, false);
-		dragPiece.mouse.removeEventListener('touchmove', moveTouchDrag, false);
-		dragPiece.mouse.removeEventListener('touchend', endTouchDrag, false);
+		// Drop the piece dragged by the mouse
+		setPiece(dragPiece.mouse);
 
 		// Deselect the piece to prevent any further movement
 		delete dragPiece.mouse;
@@ -533,6 +559,36 @@ function endDrag(evt) {
 
 	// Stop panning the play area
 	panning = false;
+}
+
+
+/**
+ * Set the specified piece down into the puzzle and link it to matching pieces if reasonable
+ * @param piece {Object} The piece being dropped
+ */
+function setPiece (piece) {
+	// Create an array of pieces in the current group, so that when we check for snapping, merges that occur won't disrupt the loop
+	var pieces = [];
+	for (var i = 0; i < piece.childNodes.length; i++) { pieces.push(piece.childNodes.item(i)); }
+
+	// Check to see if the piece should snap to any matching pieces adjacent to it (check all pieces in the dragged group)
+	for (var i = 0; i < pieces.length; i++) {
+		snapPiece(pieces[i]);
+	}
+
+	// Drop the piece, clearing any special transformations that may have been made
+	piece.matrix[0] = 1;
+	piece.matrix[1] = 0;
+	piece.matrix[2] = 0;
+	piece.matrix[3] = 1;
+	piece.setAttributeNS(null, 'transform', 'matrix(' + piece.matrix.join(',') + ')');
+
+	// Remove the drag handlers, since we are no longer moving the piece
+	piece.removeEventListener('mousemove', moveDrag, false);
+	piece.removeEventListener('mouseup', endDrag, false);
+	piece.removeEventListener('mouseout', endDrag, false);
+	piece.removeEventListener('touchmove', moveTouchDrag, false);
+	piece.removeEventListener('touchend', endTouchDrag, false);
 }
 
 
