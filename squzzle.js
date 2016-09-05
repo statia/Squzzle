@@ -10,8 +10,8 @@ var app = {                     // Object storing all global application data
 	pan: { dx: 0, dy: 0 }          // x and y offset of the view based on panning
 };
 var puzzle = {                  // Object storing all key values
-		image: 'puzzle1.jpg',      // Puzzle image to use
-		pieces: 64,                // Approximately how many pieces to have
+		image: 'puzzle1.jpg',            // Puzzle image to use
+		pieces: 64,               // Approximately how many pieces to have
 		minWidth: 50,              // Minimum allowed width of a single piece, in pixels
 		minHeight: 50,             // Minimum allowed height of a single piece, in pixels
 		rows: null,                // Total rows in the puzzle
@@ -54,8 +54,11 @@ function initialisePuzzle() {
 	var pieceArea = puzzle.width * puzzle.height / puzzle.pieces;
 
 	// Determine the size of each piece (without nubs)
-	var pieceHeight = Math.sqrt(pieceArea / angleTan);
-	var pieceWidth = pieceArea / pieceHeight;
+//	var pieceHeight = Math.sqrt(pieceArea / angleTan);
+	//var pieceWidth = pieceArea / pieceHeight;
+	// Use square sized pieces
+	var pieceHeight = Math.sqrt(pieceArea);
+	var pieceWidth = Math.sqrt(pieceArea);
 
 	// Calculate how many rows and columns of pieces we will have
 	puzzle.columns = Math.floor(puzzle.width / pieceWidth);
@@ -575,15 +578,9 @@ function endTouchDrag(evt) {
  * @param evt {Object} The touch event
  */
 function endTouchPan(evt) {
-	if (panning) {
-		for (var i = 0; i < evt.changedTouches.length; i++) {
-			// Only stop dragging the board if the ended touch is the one that initially started dragging it
-			if (panning.touches[0].identifier == evt.changedTouches[i].identifier) {
-				panning = false;
-			} else if (panning.touch2 && panning.touch2.identifier == evt.changedTouches[i].identifier) {
-				panning = false;
-			}
-		}
+	// Cease panning or resizing if our number of active touches drops below 2 (this isn't entirely accurate)
+	if (panning && evt.targetTouches.length < 2) {
+		panning = false;
 	}
 }
 
