@@ -3,3 +3,12 @@
 body { overflow: hidden; }
 svg { background: #333; }
 path { position: absolute; cursor: move; }
+
+body { /* Disable text selection to prevent issues dragging after a double-click operation */
+	-webkit-touch-callout: none;
+	-webkit-user-select: none;
+	-khtml-user-select: none;
+	-moz-user-select: none;
+	-ms-user-select: none;
+	user-select: none;
+}

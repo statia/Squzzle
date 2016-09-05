@@ -1,10 +1,16 @@
 // TODO: On double-click of a group, send it to the back (but not below the rect)
+$ = function(selector) { return document.querySelector(selector); };
+$$ = function(selector) { return document.querySelectorAll(selector); };
 
 var panning = false;            // False when not panning the play area, otherwise an object with properties startX, startY to record where the drag began, taking into account previous drag movements
 var dragPiece = null;           // Puzzle piece currently being dragged
 var startX, startY;             // Position where dragged puzzle piece was grabbed
+var app = {                     // Object storing all global application data
+	zoomLevel: 1,                  // Current zoom level, where 1 represents no scaling
+	pan: { dx: 0, dy: 0 }          // x and y offset of the view based on panning
+};
 var puzzle = {                  // Object storing all key values
-		difficulty: 2,             // Difficulty level of the puzzle (generally relates to the number of pieces)
+		difficulty: 7,             // Difficulty level of the puzzle (generally relates to the number of pieces)
 		minWidth: 50,              // Minimum allowed width of a single piece, in pixels
 		minHeight: 50,             // Minimum allowed height of a single piece, in pixels
 		rows: null,                // Total rows in the puzzle
@@ -24,8 +30,8 @@ var puzzle = {                  // Object storing all key values
  */
 function setupPuzzle() {
 	// Determine the size of the puzzle
-	puzzle.width = document.getElementById("puzzleImg").width;
-	puzzle.height =	document.getElementById("puzzleImg").height;
+	puzzle.width = document.getElementById("puzzleImg").width = 800;
+	puzzle.height =	document.getElementById("puzzleImg").height = 800;
 
 	// Calculate how many rows and columns of pieces we will have
 	puzzle.columns = Math.floor((puzzle.width/puzzle.height) * puzzle.difficulty);
@@ -48,15 +54,16 @@ function setupPuzzle() {
 	// Listen to drag events at the root in case we move too fast on a piece	
 	document.body.addEventListener('mousemove', moveDrag, false);
 	document.body.addEventListener('mouseup', endDrag, false);
+	document.body.addEventListener('mousewheel', zoomView, false);
 	
 	// Size the play area to fit the image
-	var mainArea = document.getElementById("viewport");
+	var mainArea = $("#viewport");
 	mainArea.setAttributeNS(null, "width", "100%");
 	mainArea.setAttributeNS(null, "height", "100%");
 	mainArea.setAttributeNS(null, "viewBox", "0 0 " + document.body.offsetWidth + " " + document.body.offsetHeight);
 	
 	// Size the background
-	var bg = document.getElementById("background");
+	var bg = $("#background");
 	bg.setAttributeNS(null, "width", puzzle.pieceWidth * puzzle.columns);
 	bg.setAttributeNS(null, "height", puzzle.pieceHeight * puzzle.rows);
 	
@@ -69,9 +76,11 @@ function setupPuzzle() {
  * Draw all pieces on the board
  */
 function renderPuzzle() {
+	var scatterFactor = 2;
+
 	for (var row = 0; row < puzzle.rows; row++) {
 		for (var column = 0; column < puzzle.columns; column++) {
-			drawPiece(Math.random() * puzzle.width - (column * puzzle.pieceWidth), Math.random() * puzzle.height - (row * puzzle.pieceHeight), puzzle.pieceWidth, puzzle.pieceHeight, row, column);
+			drawPiece(Math.random() * puzzle.width * scatterFactor - (column * puzzle.pieceWidth), Math.random() * puzzle.height * scatterFactor - (row * puzzle.pieceHeight), puzzle.pieceWidth, puzzle.pieceHeight, row, column);
 //			drawPiece(0, 0, puzzle.pieceWidth, puzzle.pieceHeight, row, column);       // Perfectly aligned (debug)
 		}
 	}
@@ -80,12 +89,12 @@ function renderPuzzle() {
 
 /**
  * Render the specified piece
- * @param integer x The horizontal offset position of the piece in the puzzle grid, where 0 is the left-most position of the piece when fitted in its correct position
- * @param integer y The vertical offset position of the piece in the puzzle grid, where 0 is the top-most position of the piece when fitted in its correct position
- * @param float width The width of the piece in pixels (excluding the joining parts)
- * @param float height The height of the piece in pixels (excluding the joining parts)
- * @param integer row The row the piece is found in, where the first row is 0 (top)
- * @param integer column The column the piece is found in, where the first column is 0 (left)
+ * @param  x {Number} The horizontal offset position of the piece in the puzzle grid, where 0 is the left-most position of the piece when fitted in its correct position
+ * @param y {Number} The vertical offset position of the piece in the puzzle grid, where 0 is the top-most position of the piece when fitted in its correct position
+ * @param width {Number} The width of the piece in pixels (excluding the joining parts)
+ * @param height {Number} The height of the piece in pixels (excluding the joining parts)
+ * @param row {Number} The row the piece is found in, where the first row is 0 (top)
+ * @param column {Number} The column the piece is found in, where the first column is 0 (left)
  */
 function drawPiece(x, y, width, height, row, column) {
 	// Define the units of measure for the puzzle piece
@@ -120,14 +129,15 @@ function drawPiece(x, y, width, height, row, column) {
 	
 	// Apply event listeners to the puzzle piece
 	puzzlePiece.addEventListener('mousedown', startDrag, false);
+	puzzlePiece.addEventListener('dblclick', dropPiece, false);
 	group.addEventListener('click', sendToBack, false);
 }
 
 
 /**
  * Returns a nub array specifing the shape type of each side of a puzzle piece
- * @param integer row The row the piece is found in, where the first row is 0 (top)
- * @param integer column The column the piece is found in, where the first column is 0 (left)
+ * @param row {Number} The row the piece is found in, where the first row is 0 (top)
+ * @param column {Number} The column the piece is found in, where the first column is 0 (left)
  * @return array Returns an array four values of -1, 0, or 1 values, ordered by side going clockwise from the top, where:
  *			 1 means the puzzle piece should come inside the piece on the given side
  *			 0 means no nub should be present (flat)
@@ -155,10 +165,10 @@ function getNubs(row, column) {
 
 /**
  * Creates a pattern for use with a single puzzle piece
- * @param integer row The row the piece is found in, where the first row is 0 (top); if set to -1, set the pattern to be sized to the full puzzle image, ignore nubs in this case
- * @param integer column The column the piece is found in, where the first column is 0 (left); ignored if row is -1
- * @param string id The id to give to the pattern, for use when linking shapes to it
- * @param array nubs An array four values of -1, 0, or 1 values, ordered by side going clockwise from the top, where:
+ * @param row {Number} The row the piece is found in, where the first row is 0 (top); if set to -1, set the pattern to be sized to the full puzzle image, ignore nubs in this case
+ * @param column {Number} The column the piece is found in, where the first column is 0 (left); ignored if row is -1
+ * @param id {String} The id to give to the pattern, for use when linking shapes to it
+ * @param nubs {Array} An array four values of -1, 0, or 1 values, ordered by side going clockwise from the top, where:
  *			 1 means the puzzle piece should come inside the piece on the given side
  *			 0 means no nub should be present (flat)
  *			 -1 means the puzzle piece should protrude on the given side
@@ -223,9 +233,9 @@ function createPiecePattern(row, column, id, nubs) {
 
 /**
  * Returns the shape code for the sides of the piece's path
- * @param float ux The size of one horizontal unit in pixels
- * @param float uy The size of one vertical unit in pixels
- * @param array nubs An array four values of -1, 0, or 1 values, ordered by side going clockwise from the top, where:
+ * @param ux {Number} The size of one horizontal unit in pixels
+ * @param uy {Number} The size of one vertical unit in pixels
+ * @param nubs {Array} An array four values of -1, 0, or 1 values, ordered by side going clockwise from the top, where:
  *			 1 means the puzzle piece should come inside the piece on the given side
  *			 0 means no nub should be present (flat)
  *			 -1 means the puzzle piece should protrude on the given side
@@ -267,7 +277,7 @@ function getPieceSides(ux, uy, nubs) {
 
 /**
  * Returns the bounding box object for the given puzzle piece
- * @param SVGPath piece The puzzle element
+ * @param piece {SVGPath} The puzzle element
  * @return SVGRect Returns the bounding rectangle for the given puzzle piece which has width, height, x, and y properties
  */
 function getPieceBox(piece) {
@@ -281,7 +291,7 @@ function getPieceBox(piece) {
 function sendToBack(evt) {
 	// Move it to the bottom of the stack, just above the background box
 	if (evt.shiftKey) {
-		document.getElementById("viewport").insertBefore(this, document.getElementById("background").nextSibling);
+		$("#viewport").insertBefore(this, $("#background").nextSibling);
 	}
 }
 
@@ -291,12 +301,12 @@ function sendToBack(evt) {
  */
 function startPan(evt) {
 	// Get the viewbox's current position
-	var viewBox = document.getElementById("viewport").getAttributeNS(null, "viewBox").split(" ");
+	var viewBox = $("#viewport").getAttributeNS(null, "viewBox").split(" ");
 	
 	// Record where we started dragging
 	panning = {
-		startX: evt.clientX + parseInt(viewBox[0], 10),
-		startY: evt.clientY + parseInt(viewBox[1], 10)
+		startX: (evt.clientX * app.zoomLevel) + parseInt(viewBox[0], 10),
+		startY: (evt.clientY * app.zoomLevel) + parseInt(viewBox[1], 10)
 	};
 }
 
@@ -316,8 +326,8 @@ function startDrag(evt) {
 	dragPiece.addEventListener('mouseup', endDrag, false);
 	
 	// Get the starting position to drag from to allow us to monitor movements later
-	startX = evt.clientX - dragPiece.matrix[4];
-	startY = evt.clientY - dragPiece.matrix[5];
+	startX = evt.clientX * app.zoomLevel - dragPiece.matrix[4];
+	startY = evt.clientY * app.zoomLevel - dragPiece.matrix[5];
 	
 	// Move the element to the top
 	dragPiece.parentNode.appendChild(dragPiece);
@@ -334,8 +344,8 @@ function startDrag(evt) {
 function moveDrag(evt) {
 	if (dragPiece) {
 		// Get the current position and determine the offsets
-		var dx = evt.clientX - startX;
-		var dy = evt.clientY - startY;
+		var dx = (evt.clientX * app.zoomLevel) - startX;
+		var dy = (evt.clientY * app.zoomLevel) - startY;
 		
 		// Move the piece to the new position
 		dragPiece.matrix[4] = dx;
@@ -343,12 +353,11 @@ function moveDrag(evt) {
 		dragPiece.setAttributeNS(null, 'transform', 'matrix(' + dragPiece.matrix.join(',') + ')');
 	} else if (panning) {
 		// Determine where we've moved
-		var dx = panning.startX - evt.clientX;
-		var dy = panning.startY - evt.clientY;
+		app.pan.dx = panning.startX - (evt.clientX * app.zoomLevel);
+		app.pan.dy = panning.startY - (evt.clientY * app.zoomLevel);
 		
 		// Move the main play area
-		var mainArea = document.getElementById("viewport");
-		mainArea.setAttributeNS(null, "viewBox", dx + " " + dy + " " + document.body.offsetWidth + " " + document.body.offsetHeight);
+		updateViewbox();
 	}
 }
 
@@ -381,16 +390,16 @@ function endDrag(evt) {
 		
 		// Deselect the piece to prevent any further movement
 		dragPiece = null;
-	} else {
-		// Stop panning the play area
-		panning = false;
 	}
+
+	// Stop panning the play area
+	panning = false;
 }
 
 
 /**
  * Check all non-linked sides to see if we have successfully connected to a piece
- * @param SVGPath piece The puzzle piece path element to check
+ * @param piece {SVGPath} The puzzle piece path element to check
  * @internal If a link is found, group or merge the groups of the linked pieces
  */
 function snapPiece(piece) {
@@ -440,8 +449,8 @@ function snapPiece(piece) {
 
 /**
  * Join two groups of pieces together, moving pieceB to align with pieceA as necessary
- * @param SVGPath pieceA The piece to align to and merge into
- * @param SVGPath pieceB The piece to align and group into pieceA
+ * @param pieceA {SVGPath} The piece to align to and merge into
+ * @param pieceB {SVGPath} The piece to align and group into pieceA
  */
 function joinPieces(pieceA, pieceB) {
 	// Move all pieces in the pieceB's group into pieceA's group
@@ -457,7 +466,7 @@ function joinPieces(pieceA, pieceB) {
 
 /**
  * Returns the screen coordinates for a given puzzle piece's base box (puzzle piece without nubs considered)
- * @param SVGPath piece The puzzle piece path element
+ * @param piece {SVGPath} The puzzle piece path element
  * @return object Returns a box object for the piece's base, ignoring nubs, with properties x1, y1, x2, y2, where (x1, y1) is the top-left and (x2, y2) is the bottom right
  */
 function getPiecePosition(piece) {
@@ -480,8 +489,8 @@ function getPiecePosition(piece) {
 
 /**
  * Returns the midpoint coordinates for a given puzzle piece on a specific side
- * @param object box A coordinate box defining the top-left and bottom-right positions for a puzzle piece, with properties x1, y1, x2, y2, where (x1, y1) is the top-left and (x2, y2) is the bottom-right
- * @param integer side The side index in the range 0..3, where 0 is the top, then the other sides proceed clockwise
+ * @param box {Object} A coordinate box defining the top-left and bottom-right positions for a puzzle piece, with properties x1, y1, x2, y2, where (x1, y1) is the top-left and (x2, y2) is the bottom-right
+ * @param side {Number} The side index in the range 0..3, where 0 is the top, then the other sides proceed clockwise
  * @return object Returns a coordinate object for the midpoint on the specified side with x and y properties
  */
 function getMidpoint(box, side) {
@@ -503,8 +512,8 @@ function getMidpoint(box, side) {
 
 /**
  * Returns the distance between two points, A and B
- * @param object A An object representing a coordinate, with properties x and y
- * @param object B An object representing a coordinate, with properties x and y
+ * @param A {Object} An object representing a coordinate, with properties x and y
+ * @param B {Object} An object representing a coordinate, with properties x and y
  * @return float Returns the distance between the two points A and B
  */
 function getDistance(A, B) {
@@ -514,7 +523,7 @@ function getDistance(A, B) {
 
 /**
  * Return the row and column of a given puzzle piece
- * @param SVGPath piece The path element for a given puzzle piece
+ * @param piece {SVGPath} The path element for a given puzzle piece
  * @return object Returns an object with properties for the piece's row and column values
  */
 function getPieceRowCol(piece) {
@@ -569,4 +578,64 @@ function checkVictory() {
 		// Set the background holder to the full puzzle image
 		document.getElementById("background").setAttributeNS(null, "fill", "url(#ALL)");
 	}
+}
+
+
+/**
+ * Zoom the view in or out based on the mouse wheel movement
+ * @param evt {Object} The event object
+ */
+function zoomView(evt) {
+	if (evt.wheelDelta < 0) {
+		setZoom(app.zoomLevel + 0.1);
+	} else {
+		setZoom(app.zoomLevel - 0.1);
+	}
+}
+
+
+/**
+ * Set the display zoom level
+ * @param level {Number} The zoom scaling factor, where 1 represents no scaling (100% size)
+ */
+function setZoom(level) {
+	// Disallow zooming while dragging a piece
+	if (dragPiece) { return; }
+
+	var prevZoom = app.zoomLevel;       // Get the previous zoom level to allow us to keep the view centered
+
+	// Prevent the zoom from going too low or too high
+	app.zoomLevel = Math.min(4, Math.max(0.1, level));
+
+	// We also need to adjust the pan to keep the centre in the centre of the window
+	app.pan.dx += ((document.body.offsetWidth / 2 * prevZoom) - (document.body.offsetWidth / 2 * app.zoomLevel));
+	app.pan.dy += ((document.body.offsetHeight / 2 * prevZoom) - (document.body.offsetHeight / 2 * app.zoomLevel));
+
+	// Update the viewport to reflect the zoom change
+	updateViewbox();
+}
+
+
+/**
+ * Update the SVG viewbox to account for changes in position (panning) and scaling (zooming)
+ */
+function updateViewbox() {
+	$('#viewport').setAttributeNS(null, "viewBox", Math.round(app.pan.dx) + " " + Math.round(app.pan.dy) + " " + Math.round(document.body.offsetWidth * app.zoomLevel) + " " + Math.round(document.body.offsetHeight * app.zoomLevel));
+}
+
+
+/**
+ * Push a piece (and all connected pieces) to the back
+ * @param evt {Object} The click event for the piece being pushed back
+ */
+function dropPiece(evt) {
+	// Store a reference to the dragged piece
+	var piece = evt.target.parentNode;
+
+	// Move the element to the top
+	var firstPiece = $('#viewport>g');
+	piece.parentNode.insertBefore(piece, firstPiece);
+
+	// Terminate the drag
+	endDrag();
 }
