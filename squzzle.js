@@ -10,8 +10,8 @@ var app = {                     // Object storing all global application data
 	pan: { dx: 0, dy: 0 }          // x and y offset of the view based on panning
 };
 var puzzle = {                  // Object storing all key values
-		image: 'puzzle1.jpg',            // Puzzle image to use
-		pieces: 64,               // Approximately how many pieces to have
+		image: 'puzzle1.jpg',      // Puzzle image to use
+		pieces: 64,                // Approximately how many pieces to have
 		minWidth: 50,              // Minimum allowed width of a single piece, in pixels
 		minHeight: 50,             // Minimum allowed height of a single piece, in pixels
 		rows: null,                // Total rows in the puzzle
@@ -346,36 +346,26 @@ function startTouchPan(evt) {
 
 	// Don't handle this event if it's targetting a puzzle piece
 	if (evt.target.nodeName != "path") {
-		// If only one touch has been received and we aren't already panning, treat this as a simple pan
-		if (!panning && (evt.changedTouches.length == 1)) {
-			// Get the viewbox's current position
-			var viewBox = $("#viewport").getAttributeNS(null, "viewBox").split(" ");
+		// Inialise the panning object if we were not previously panning or resizing
+		var viewBox = $("#viewport").getAttributeNS(null, "viewBox").split(" ");
+		panning = {
+			mode: 'none',
+			touch1: evt.targetTouches[0], // Track one of the touches (only one is needed)
+			startX: (evt.targetTouches[0].clientX * app.zoomLevel) + parseInt(viewBox[0], 10), // Record where we started dragging
+			startY: (evt.targetTouches[0].clientY * app.zoomLevel) + parseInt(viewBox[1], 10)
+		};
 
-			// Record where we started dragging
+		if (evt.targetTouches.length >= 3) {
+			// Get the viewbox's current position
+
+			panning.mode = 'pan'; // Action to be taken when a touchmove event fires
+		} else if (evt.targetTouches.length == 2) {
+			// Resize operation directly started due to receiving two (or more) new touches while not already panning
 			panning = {
-				touch1: evt.changedTouches[0], // Track the first touch in case we start resizing later
-				touchId: evt.changedTouches[0].identifier, // Tracks which touch point is dragging the board so we know when to end
-				startX: (evt.changedTouches[0].clientX * app.zoomLevel) + parseInt(viewBox[0], 10),
-				startY: (evt.changedTouches[0].clientY * app.zoomLevel) + parseInt(viewBox[1], 10)
+				mode: 'resize',
+				touch1: evt.targetTouches[0], // Tracks which the base touch point for resizing
+				touch2: evt.targetTouches[1]  // Tracks the reference touch point for resizing
 			};
-		} else {
-			// A new touch has arrived, stop panning and begin a resize operation
-			if (panning) {
-				// Add the newest touch as the reference touch
-				if (evt.changedTouches[0].identifier == panning.touch1.identifier) {
-					// The second touch is the new one
-					panning.touch2 = evt.changedTouches[1];
-				} else {
-					// The first touch is the new one
-					panning.touch2 = evt.changedTouches[0];
-				}
-			} else {
-				// Resize operation directly started due to receiving two (or more) new touches while not already panning
-				panning = {
-					touch1: evt.changedTouches[0], // Tracks which the base touch point for resizing
-					touch2: evt.changedTouches[1]  // Tracks the reference touch point for resizing
-				};
-			}
 
 			// Store the initial separation so we don't consider that when resizing
 			panning.separation = getTouchDistance(panning.touch1, panning.touch2);
@@ -489,9 +479,9 @@ function moveTouchDrag(evt) {
 
 	if (dragPiece.hasOwnProperty("touch" + touchedPiece.touchId)) {
 		// Find the dragging touch point
-		for (var i = 0; i < evt.changedTouches.length; i++) {
-			if (touchedPiece.touchId == evt.changedTouches[i].identifier) {
-				touch = evt.changedTouches[i];
+		for (var i = 0; i < evt.targetTouches.length; i++) {
+			if (touchedPiece.touchId == evt.targetTouches[i].identifier) {
+				touch = evt.targetTouches[i];
 				break;
 			}
 		}
@@ -520,13 +510,13 @@ function moveTouchPan(evt) {
 
 	if (panning) {
 		// If resizing, set the zoom level based on the screen distance between touches
-		if (panning.hasOwnProperty('touch2')) {
+		if (panning.mode == 'resize') {
 			// Update the changed touches
-			for (var i = 0; i < evt.changedTouches.length; i++) {
-				if (panning.touch1.identifier == evt.changedTouches.item(i).identifier) {
-					panning.touch1 = evt.changedTouches.item(i);
-				} else if (panning.touch2.identifier == evt.changedTouches.item(i).identifier) {
-					panning.touch2 = evt.changedTouches.item(i);
+			for (var i = 0; i < evt.targetTouches.length; i++) {
+				if (panning.touch1.identifier == evt.targetTouches.item(i).identifier) {
+					panning.touch1 = evt.targetTouches.item(i);
+				} else if (panning.touch2.identifier == evt.targetTouches.item(i).identifier) {
+					panning.touch2 = evt.targetTouches.item(i);
 				}
 			}
 
@@ -535,12 +525,12 @@ function moveTouchPan(evt) {
 			var zoomChange = panning.separation / touchSeparation;
 			panning.separation = touchSeparation; // Update the last known touch separation
 			setZoom(zoomChange * app.zoomLevel); // Apply the zoom change as a factor of the change in separation
-		} else {
+		} else if (panning.mode == 'pan') {
 			// Otherwise, treat this as a pan
 
 			// Find the dragging touch point
 			for (var i = 0; i < evt.changedTouches.length; i++) {
-				if (panning.touchId == evt.changedTouches[i].identifier) {
+				if (panning.touch1.identifier == evt.changedTouches[i].identifier) {
 					touch = evt.changedTouches[i];
 					break;
 				}
@@ -588,7 +578,7 @@ function endTouchPan(evt) {
 	if (panning) {
 		for (var i = 0; i < evt.changedTouches.length; i++) {
 			// Only stop dragging the board if the ended touch is the one that initially started dragging it
-			if (panning.touch1.identifier == evt.changedTouches[i].identifier) {
+			if (panning.touches[0].identifier == evt.changedTouches[i].identifier) {
 				panning = false;
 			} else if (panning.touch2 && panning.touch2.identifier == evt.changedTouches[i].identifier) {
 				panning = false;
